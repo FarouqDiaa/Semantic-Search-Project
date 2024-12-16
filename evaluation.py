@@ -1,6 +1,6 @@
 # This snippet of code is to show you a simple evaluate for VecDB class, but the full evaluation for project on the Notebook shared with you.
 import numpy as np
-from vec_dbPQ import VecDB
+from vec_db import VecDB
 import time
 from dataclasses import dataclass
 from typing import List

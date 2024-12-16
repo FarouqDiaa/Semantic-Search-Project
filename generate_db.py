@@ -1,4 +1,4 @@
-from vec_dbPQ import VecDB
+from vec_db import VecDB
 from evaluation import *
 import numpy as np
 import time
