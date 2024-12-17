@@ -152,10 +152,9 @@ class VecDB:
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
             # Initialize cluster manager and PQ codebooks if not already loaded
         if self.cluster_manager is None:
-            self.cluster_manager = None
+            self.load_indices()
             self.pq_codebooks = {}
             self.last_indexed_row = 0
-            self.load_indices()
         # Step 1: Calculate cosine similarity with cluster centroids
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
