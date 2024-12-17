@@ -3,6 +3,8 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from typing import Dict, List, Annotated
 from sklearn.cluster import KMeans
+import faiss
+
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -10,12 +12,12 @@ DIMENSION = 70
 
 
 class VecDB:
-    def __init__(self, database_file_path="saved_db_1m.dat", index_file_path="saved_db_1m", new_db=True, db_size=None) -> None:
+    def __init__(self, database_file_path="saved_db_100.dat", index_file_path="saved_db_100", new_db=True, db_size=None) -> None:
         self.db_path = database_file_path
         self.index_path = index_file_path
-        self.cluster_manager = None
-        self.pq_codebooks = {}  # For Product Quantization
-        self.last_indexed_row = 0 
+        #self.cluster_manager = None
+        #self.pq_codebooks = {}  # For Product Quantization
+        #self.last_indexed_row = 0 
 
         # Ensure the index directory exists
         os.makedirs(self.index_path, exist_ok=True)
@@ -26,8 +28,8 @@ class VecDB:
             if os.path.exists(self.db_path):
                 os.remove(self.db_path)
             self.generate_database(db_size)
-        else:
-            self.load_indices()
+        #else:
+            #self.load_indices()
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
@@ -74,18 +76,22 @@ class VecDB:
 
     def _build_index(self, full_rebuild=False):
         vectors = self.get_all_rows()
+        
 
         if full_rebuild:
+            num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))) // 2
+            print(f"num_clusters = {num_clusters}")
             self.cluster_manager = ClusterManager(
-                #num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))), dimension=DIMENSION
-                num_clusters = max(1, min(len(vectors), int(np.sqrt(len(vectors)) * 2))), dimension=DIMENSION
+                num_clusters, dimension=DIMENSION
+                #num_clusters = max(1, min(len(vectors), int(np.sqrt(len(vectors)) * 2))), dimension=DIMENSION
             )
             self.cluster_manager.cluster_vectors(vectors)
 
             # Save centroids and assignments to disk
             centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
             assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
-            np.save(centroids_path, self.cluster_manager.kmeans.cluster_centers_)
+            np.save(centroids_path, self.cluster_manager.centroids)
+
             np.save(assignments_path, self.cluster_manager.assignments)
 
             # Create codebooks and save IDs with PQ codes
@@ -143,49 +149,59 @@ class VecDB:
             self.last_indexed_row = len(vectors)
 
 
-    def retrieve(self, query: np.ndarray, top_k=5) -> List[int]:
-        # Load indices if not already loaded
-        if not self.cluster_manager or self.cluster_manager.centroids is None:
+    def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
+            # Initialize cluster manager and PQ codebooks if not already loaded
+        if self.cluster_manager is None:
+            self.cluster_manager = None
+            self.pq_codebooks = {}
+            self.last_indexed_row = 0
             self.load_indices()
+        # Step 1: Calculate cosine similarity with cluster centroids
+        cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
+        sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
-        if self.cluster_manager.centroids is None or len(self.cluster_manager.centroids) == 0:
-            return []  # No clusters available
+        # Step 2: Select top clusters to search within
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 50)]]
 
-        # Calculate cosine similarity between query and centroids
-        cluster_scores = [
-            (cluster_id, self._cal_score(query, centroid))
-            for cluster_id, centroid in enumerate(self.cluster_manager.centroids)
-        ]
 
-        # Sort clusters by descending similarity
-        sorted_clusters = sorted(cluster_scores, key=lambda x: x[1], reverse=True)
-        cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(3, top_k // 2)]]
+        # Step 3: Retrieve candidate vectors using PQ scores
+        candidates = []
+        for cluster_id in top_cluster_ids:
+            # Get indices of vectors in this cluster
+            cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
+            cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
 
-        results = []
-
-        # Search within the selected clusters
-        for cluster_id in cluster_ids:
-            cluster_file = os.path.join(self.index_path, f"cluster_{cluster_id}.npz")
-            if not os.path.exists(cluster_file):
-                continue  # Skip if cluster data is missing
-
-            # Load cluster data
-            cluster_data = np.load(cluster_file)
-            cluster_vector_ids = cluster_data["ids"]
-            cluster_codes = cluster_data["codes"]
+            # Retrieve PQ codes and codebook
+            pq_codes = cluster_data["codes"]
             codebook = cluster_data["codebook"]
 
-            # Perform PQ-based search
-            pq_results = self._pq_search(cluster_codes, query, top_k, codebook)
-            for local_idx, similarity in pq_results:
-                global_id = cluster_vector_ids[local_idx]
-                combined_score = 0.7 * similarity + 0.3 * self._cal_score(query, self.cluster_manager.centroids[cluster_id])
-                results.append((global_id, combined_score))
+            # Perform PQ search to find top candidates
+            pq_results = self._pq_search(pq_codes, query, top_k * 50, codebook)
+            for idx, pq_score in pq_results:
+                candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
 
-        # Sort final results by similarity
-        results.sort(reverse=True, key=lambda x: x[1])
-        return [idx for idx, _ in results[:top_k]]
+        # Step 4: Retrieve original vectors and re-rank by full similarity
+        final_candidates = []
+        for idx, _ in candidates:
+            original_vector = self.get_one_row(idx)
+            score = self._cal_score(query, original_vector)
+            final_candidates.append((idx, score))
 
+        # Step 5: Sort candidates by the recalculated similarity score and return top_k
+        final_candidates.sort(key=lambda x: -x[1])
+        return [int(idx) for idx, _ in final_candidates[:top_k]]
+
+    def retrieve_true(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
+        scores = []
+        num_records = self._get_num_records()
+        # here we assume that the row number is the ID of each vector
+        for row_num in range(num_records):
+            vector = self.get_one_row(row_num)
+            score = self._cal_score(query, vector)
+            scores.append((score, row_num))
+        # here we assume that if two rows have the same score, return the lowest ID
+        scores = sorted(scores, reverse=True)[:top_k]
+        return [s[1] for s in scores]
 
     def _pq_search(self, codes: np.ndarray, query: np.ndarray, top_k: int, codebook: np.ndarray) -> List[tuple]:
         # Reconstruct vectors using the codebook
@@ -209,15 +225,18 @@ class VecDB:
 
 
     def _quantize(self, codebook: np.ndarray, vector: np.ndarray) -> int:
-        return int(np.argmin(np.linalg.norm(codebook - vector, axis=1)))
+        dot_products = np.dot(codebook, vector)  # Compute dot products for all centroids
+        norms = np.linalg.norm(codebook, axis=1) * np.linalg.norm(vector)
+        similarities = dot_products / norms
+        return int(np.argmax(similarities))
+
 
 
     def _train_pq_codebook(self, cluster_vectors: np.ndarray) -> np.ndarray:
-        num_clusters = min(len(cluster_vectors), 512)
+        num_clusters = max(1, min(len(cluster_vectors) // 5, 4096))
         kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
         kmeans.fit(cluster_vectors)
         return kmeans.cluster_centers_
-
 
     def get_all_rows(self) -> np.ndarray:
         # Take care this load all the data in memory
@@ -256,7 +275,25 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        #self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=DB_SEED_NUMBER, batch_size=1024)
-        self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=DB_SEED_NUMBER)
-        self.assignments = self.kmeans.fit_predict(vectors)
-        self.centroids = self.kmeans.cluster_centers_
+        # Ensure data is in float32 format (required for FAISS)
+        vectors = vectors.astype(np.float32)
+
+        # Initialize FAISS KMeans
+        kmeans = faiss.Kmeans(
+            d=self.dimension,      # Vector dimensionality
+            k=self.num_clusters,   # Number of clusters
+            niter=20,              # Number of iterations
+            seed=DB_SEED_NUMBER
+        )
+
+        # Train FAISS KMeans
+        kmeans.train(vectors)
+        self.centroids = kmeans.centroids
+
+        # Use FAISS IndexFlatL2 to assign clusters
+        index = faiss.IndexFlatL2(self.dimension)
+        index.add(self.centroids)
+        _, self.assignments = index.search(vectors, 1)
+        self.assignments = self.assignments.flatten()
+    def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
+        return np.where(self.assignments == cluster_id)[0]

@@ -51,7 +51,7 @@ def eval(results, db):
     return avg_score, avg_runtime
 
 # Main logic
-db = VecDB(database_file_path="saved_db.dat", index_file_path="index.dat", db_size=100)  # Use an existing database
+db = VecDB(database_file_path="saved_db.dat", index_file_path="index.dat", db_size=1000)  # Use an existing database
 
 # Retrieve all vectors from the database
 all_db = db.get_all_rows()
