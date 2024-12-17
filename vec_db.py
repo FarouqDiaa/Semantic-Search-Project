@@ -2,6 +2,7 @@ import os
 import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from typing import Dict, List, Annotated
+from sklearn.cluster import KMeans
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -76,7 +77,8 @@ class VecDB:
 
         if full_rebuild:
             self.cluster_manager = ClusterManager(
-                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))), dimension=DIMENSION
+                #num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))), dimension=DIMENSION
+                num_clusters = max(1, min(len(vectors), int(np.sqrt(len(vectors)) * 2))), dimension=DIMENSION
             )
             self.cluster_manager.cluster_vectors(vectors)
 
@@ -177,7 +179,8 @@ class VecDB:
             pq_results = self._pq_search(cluster_codes, query, top_k, codebook)
             for local_idx, similarity in pq_results:
                 global_id = cluster_vector_ids[local_idx]
-                results.append((global_id, similarity))
+                combined_score = 0.7 * similarity + 0.3 * self._cal_score(query, self.cluster_manager.centroids[cluster_id])
+                results.append((global_id, combined_score))
 
         # Sort final results by similarity
         results.sort(reverse=True, key=lambda x: x[1])
@@ -210,8 +213,8 @@ class VecDB:
 
 
     def _train_pq_codebook(self, cluster_vectors: np.ndarray) -> np.ndarray:
-        num_clusters = min(len(cluster_vectors), 256)
-        kmeans = MiniBatchKMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
+        num_clusters = min(len(cluster_vectors), 512)
+        kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
         kmeans.fit(cluster_vectors)
         return kmeans.cluster_centers_
 
@@ -253,6 +256,7 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        self.kmeans = MiniBatchKMeans(n_clusters=self.num_clusters, random_state=DB_SEED_NUMBER, batch_size=1024)
+        #self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=DB_SEED_NUMBER, batch_size=1024)
+        self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=DB_SEED_NUMBER)
         self.assignments = self.kmeans.fit_predict(vectors)
         self.centroids = self.kmeans.cluster_centers_
