@@ -176,7 +176,7 @@ class VecDB:
             codebook = cluster_data["codebook"]
 
             # Perform PQ search to find top candidates
-            pq_results = self._pq_search(pq_codes, query, top_k * 50, codebook)
+            pq_results = self._pq_search(pq_codes, query, top_k * 20, codebook)
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
 
