@@ -28,8 +28,8 @@ class VecDB:
             if os.path.exists(self.db_path):
                 os.remove(self.db_path)
             self.generate_database(db_size)
-        #else:
-            #self.load_indices()
+        else:
+            self.load_indices()
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
@@ -163,11 +163,11 @@ class VecDB:
             sampled_centroids = np.random.choice(self.cluster_manager.centroids, num_clusters_to_sample, replace=False)
             
             cluster_scores = [(i, self._cal_score(query, centroid)) 
-                            for i, centroid in enumerate(sampled_centroids)]
+                for i, centroid in enumerate(sampled_centroids)]
         else:
             # Default behavior
             cluster_scores = [(i, self._cal_score(query, centroid)) 
-                            for i, centroid in enumerate(self.cluster_manager.centroids)]
+                for i, centroid in enumerate(self.cluster_manager.centroids)]
 
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
