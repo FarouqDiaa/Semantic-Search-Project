@@ -156,26 +156,21 @@ class VecDB:
         # Get the total number of vectors
         total_vectors = self._get_num_records()
 
-        # Step 1: Check if the number of vectors exceeds 15 million
+        # If total vectors exceed 15 million, sample from clusters or rows
         if total_vectors > 15_000_000:
-            # Sample a smaller set of vectors for faster processing
-            sample_size = min(15_000, total_vectors)  # Adjust sample size as needed
-            sample_indices = np.random.choice(total_vectors, sample_size, replace=False)
-            sampled_vectors = self.get_all_rows()[sample_indices]
+            # Sample fewer clusters or vectors (modify as needed)
+            num_clusters_to_sample = max(5, min(len(self.cluster_manager.centroids), top_k * 4))
+            sampled_centroids = np.random.choice(self.cluster_manager.centroids, num_clusters_to_sample, replace=False)
             
-            # Compute centroids using sampled data
-            cluster_scores = [(i, self._cal_score(query, centroid))
-                            for i, centroid in enumerate(self.cluster_manager.centroids)]
-            sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
-
-            # Select top clusters based on sampled data
-            top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
+            cluster_scores = [(i, self._cal_score(query, centroid)) 
+                            for i, centroid in enumerate(sampled_centroids)]
         else:
-            # Use all data for clustering
-            cluster_scores = [(i, self._cal_score(query, centroid))
+            # Default behavior
+            cluster_scores = [(i, self._cal_score(query, centroid)) 
                             for i, centroid in enumerate(self.cluster_manager.centroids)]
-            sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
-            top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
+
+        sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
 
 
         # Step 3: Retrieve candidate vectors using PQ scores
