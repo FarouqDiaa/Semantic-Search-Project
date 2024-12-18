@@ -1,2 +1,3 @@
 numpy
 memory-profiler
+faiss-cpu
