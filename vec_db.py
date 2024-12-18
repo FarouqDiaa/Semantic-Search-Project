@@ -161,7 +161,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
         # Step 2: Select top clusters to search within
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 10)]]
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
 
 
         # Step 3: Retrieve candidate vectors using PQ scores
@@ -176,7 +176,7 @@ class VecDB:
             codebook = cluster_data["codebook"]
 
             # Perform PQ search to find top candidates
-            pq_results = self._pq_search(pq_codes, query, top_k * 20, codebook)
+            pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
 
