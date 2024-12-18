@@ -164,7 +164,8 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
         # Step 2: Select top clusters to search within
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
+        # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(10, top_k * 8)]]
 
 
         # Step 3: Retrieve candidate vectors using PQ scores
@@ -239,6 +240,7 @@ class VecDB:
         # num_clusters = max(1, min(len(cluster_vectors) // 5, 4096))
         # TODO: changed
         num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 4)))) 
+        
         kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
         kmeans.fit(cluster_vectors)
         return kmeans.cluster_centers_
