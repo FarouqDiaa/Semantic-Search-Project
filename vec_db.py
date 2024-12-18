@@ -245,7 +245,7 @@ class VecDB:
     def get_one_row(self, row_num: int) -> np.ndarray:
         # This function is only load one row in memory
         try:
-            offset = int(row_num * DIMENSION * ELEMENT_SIZE)
+            offset = row_num * DIMENSION * ELEMENT_SIZE
             mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
             return np.array(mmap_vector[0])
         except Exception as e:
