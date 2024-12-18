@@ -153,19 +153,29 @@ class VecDB:
 
 
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
-            # Initialize cluster manager and PQ codebooks if not already loaded
-        if self.cluster_manager is None:
-            self.cluster_manager = None
-            self.pq_codebooks = {}
-            self.last_indexed_row = 0
-            self.load_indices()
-        # Step 1: Calculate cosine similarity with cluster centroids
-        cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
-        sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+        # Get the total number of vectors
+        total_vectors = self._get_num_records()
 
-        # Step 2: Select top clusters to search within
-        # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
+        # Step 1: Check if the number of vectors exceeds 15 million
+        if total_vectors > 15_000_000:
+            # Sample a smaller set of vectors for faster processing
+            sample_size = min(15_000, total_vectors)  # Adjust sample size as needed
+            sample_indices = np.random.choice(total_vectors, sample_size, replace=False)
+            sampled_vectors = self.get_all_rows()[sample_indices]
+            
+            # Compute centroids using sampled data
+            cluster_scores = [(i, self._cal_score(query, centroid))
+                            for i, centroid in enumerate(self.cluster_manager.centroids)]
+            sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+
+            # Select top clusters based on sampled data
+            top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
+        else:
+            # Use all data for clustering
+            cluster_scores = [(i, self._cal_score(query, centroid))
+                            for i, centroid in enumerate(self.cluster_manager.centroids)]
+            sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+            top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
 
 
         # Step 3: Retrieve candidate vectors using PQ scores
