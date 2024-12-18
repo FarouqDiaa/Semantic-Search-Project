@@ -15,7 +15,7 @@ class VecDB:
     def __init__(self, database_file_path="saved_db_100.dat", index_file_path="saved_db_100", new_db=True, db_size=None) -> None:
         self.db_path = database_file_path
         self.index_path = index_file_path
-        #self.cluster_manager = None
+        self.cluster_manager = None
         #self.pq_codebooks = {}  # For Product Quantization
         #self.last_indexed_row = 0 
 
@@ -152,9 +152,10 @@ class VecDB:
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
             # Initialize cluster manager and PQ codebooks if not already loaded
         if self.cluster_manager is None:
-            self.load_indices()
+            self.cluster_manager = None
             self.pq_codebooks = {}
             self.last_indexed_row = 0
+            self.load_indices()
         # Step 1: Calculate cosine similarity with cluster centroids
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
