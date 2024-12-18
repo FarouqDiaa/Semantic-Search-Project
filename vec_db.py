@@ -28,8 +28,8 @@ class VecDB:
             if os.path.exists(self.db_path):
                 os.remove(self.db_path)
             self.generate_database(db_size)
-        else:
-            self.load_indices()
+        #else:
+            #self.load_indices()
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
@@ -153,23 +153,18 @@ class VecDB:
 
 
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
-        # Get the total number of vectors
-        total_vectors = self._get_num_records()
-
-        # If total vectors exceed 15 million, sample from clusters or rows
-        if total_vectors > 15_000_000:
-            # Sample fewer clusters or vectors (modify as needed)
-            num_clusters_to_sample = max(5, min(len(self.cluster_manager.centroids), top_k * 4))
-            sampled_centroids = np.random.choice(self.cluster_manager.centroids, num_clusters_to_sample, replace=False)
-            
-            cluster_scores = [(i, self._cal_score(query, centroid)) 
-                for i, centroid in enumerate(sampled_centroids)]
-        else:
-            # Default behavior
-            cluster_scores = [(i, self._cal_score(query, centroid)) 
-                for i, centroid in enumerate(self.cluster_manager.centroids)]
-
+            # Initialize cluster manager and PQ codebooks if not already loaded
+        if self.cluster_manager is None:
+            self.cluster_manager = None
+            self.pq_codebooks = {}
+            self.last_indexed_row = 0
+            self.load_indices()
+        # Step 1: Calculate cosine similarity with cluster centroids
+        cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+
+        # Step 2: Select top clusters to search within
+        # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
 
 
