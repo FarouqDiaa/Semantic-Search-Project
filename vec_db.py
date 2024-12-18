@@ -161,7 +161,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
         # Step 2: Select top clusters to search within
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 20)]]
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 15)]]
 
 
         # Step 3: Retrieve candidate vectors using PQ scores
