@@ -90,7 +90,10 @@ class VecDB:
             # Save centroids and assignments to disk
             centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
             assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
-            np.save(centroids_path, self.cluster_manager.centroids)
+            # TODO: changed
+            compressed_centroids = (self.cluster_manager.centroids * 255).astype(np.uint8) 
+            np.save(centroids_path, compressed_centroids)
+            # np.save(centroids_path, self.cluster_manager.centroids)
 
             np.save(assignments_path, self.cluster_manager.assignments)
 
@@ -233,7 +236,9 @@ class VecDB:
 
 
     def _train_pq_codebook(self, cluster_vectors: np.ndarray) -> np.ndarray:
-        num_clusters = max(1, min(len(cluster_vectors) // 5, 4096))
+        # num_clusters = max(1, min(len(cluster_vectors) // 5, 4096))
+        # TODO: changed
+        num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 4)))) 
         kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
         kmeans.fit(cluster_vectors)
         return kmeans.cluster_centers_
