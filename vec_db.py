@@ -249,7 +249,8 @@ class VecDB:
             mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
             return np.array(mmap_vector[0])
         except Exception as e:
-            raise RuntimeError(f"Failed to retrieve row {row_num}: {e}")
+            total_rows = self._get_num_records()
+            raise RuntimeError(f"Failed to retrieve row {row_num} out of {total_rows} rows: {e}")
     def _get_num_records(self) -> int:
         return os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
     def insert_records(self, rows: Annotated[np.ndarray, (int, 70)]):
