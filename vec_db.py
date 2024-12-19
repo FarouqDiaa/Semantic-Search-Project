@@ -45,7 +45,11 @@ class VecDB:
     def load_indices(self) -> None:
         centroids_path = os.path.join(self.index_path, "ivf_centroids.npz")
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npz")
-
+        if not os.path.exists(centroids_path) or not os.path.exists(assignments_path):
+            raise FileNotFoundError(
+                f"Centroids or assignments files not found in {self.index_path}. "
+                "Ensure the index is built using `_build_index(full_rebuild=True)`."
+            )
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             # Load centroids and assignments
             centroids = np.load(centroids_path)["arr_0"]
