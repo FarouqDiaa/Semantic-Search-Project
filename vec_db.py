@@ -48,7 +48,7 @@ class VecDB:
         vectors = self.get_all_rows()
 
         if full_rebuild:
-            num_clusters = max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))
+            num_clusters = max(1, min(len(vectors), int(len(vectors) ** 0.5 // 2)))
             self.cluster_manager = ClusterManager(num_clusters, dimension=DIMENSION)
             self.cluster_manager.cluster_vectors(vectors)
 
@@ -64,8 +64,8 @@ class VecDB:
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
-        # Step 2: Dynamically adjust cluster exploration based on dataset size
-        max_clusters_to_search = max(5, min(len(sorted_clusters), top_k * 10))  # Adjusted exploration factor
+        # Step 2: Dynamically adjust cluster exploration
+        max_clusters_to_search = max(5, min(len(sorted_clusters), top_k * 8))  # Tighter exploration factor
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max_clusters_to_search]]
 
         # Step 3: Retrieve candidate vectors from top clusters
@@ -74,7 +74,7 @@ class VecDB:
             cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
             candidates.update(cluster_vector_indices)
 
-        # Step 4: Re-rank all candidates by cosine similarity
+        # Step 4: Use a fixed-size buffer for re-ranking to limit RAM usage
         final_candidates = []
         for idx in candidates:
             vector = self.get_one_row(idx)
@@ -121,7 +121,7 @@ class ClusterManager:
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
         vectors = vectors.astype(np.float32)
-        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=20, seed=DB_SEED_NUMBER)  # Reduced iterations
+        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=15, seed=DB_SEED_NUMBER)  # Reduced iterations
         kmeans.train(vectors)
         self.centroids = kmeans.centroids
 
