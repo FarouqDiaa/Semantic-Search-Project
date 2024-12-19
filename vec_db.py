@@ -58,7 +58,7 @@ class VecDB:
             self.load_indices()
     
         # Ensure the query vector is 1-dimensional
-        query = query.ravel()
+        query = query.flatten()  # Ensures query is (70,) and not (1, 70) or similar
     
         # Step 1: Calculate distances to centroids (vectorized)
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
@@ -83,12 +83,13 @@ class VecDB:
         # Step 5: Compute cosine similarity in a vectorized manner
         query_norm = np.linalg.norm(query)
         candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-        dot_products = np.dot(candidate_vectors, query)
+        dot_products = np.dot(candidate_vectors, query)  # Vectorized dot product
         scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Avoid division by zero
     
         # Step 6: Sort by similarity score and select top-k
         top_k_indices = np.argsort(-scores)[:top_k]
         return candidates[top_k_indices].tolist()
+
 
 
 
