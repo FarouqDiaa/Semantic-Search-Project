@@ -57,6 +57,9 @@ class VecDB:
         if self.cluster_manager is None:
             self.load_indices()
     
+        # Ensure the query vector is 1-dimensional
+        query = query.ravel()
+    
         # Step 1: Calculate distances to centroids (vectorized)
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
         sorted_centroid_indices = np.argsort(centroid_distances)
@@ -86,6 +89,7 @@ class VecDB:
         # Step 6: Sort by similarity score and select top-k
         top_k_indices = np.argsort(-scores)[:top_k]
         return candidates[top_k_indices].tolist()
+
 
 
     def get_all_rows(self) -> np.ndarray:
