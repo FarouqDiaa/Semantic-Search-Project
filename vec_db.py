@@ -54,42 +54,53 @@ class VecDB:
             np.save(os.path.join(self.index_path, "ivf_assignments.npy"), self.cluster_manager.assignments)
 
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
-        if self.cluster_manager is None:
-            self.load_indices()
-    
-        # Ensure the query vector is 1-dimensional
-        query = query.flatten()  # Ensures query is (70,) and not (1, 70) or similar
-    
-        # Step 1: Calculate distances to centroids (vectorized)
-        centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
-        sorted_centroid_indices = np.argsort(centroid_distances)
-    
-        # Step 2: Select top clusters to search
-        max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 8)
-        top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
-    
-        # Step 3: Gather candidates from top clusters
-        candidates = set()
-        for cluster_id in top_cluster_ids:
-            cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
-            candidates.update(cluster_vector_indices)
-    
-        candidates = np.array(list(candidates))
-    
-        # Step 4: Batch read candidate vectors (minimize I/O operations)
-        all_vectors = self.get_all_rows()
-        candidate_vectors = all_vectors[candidates]
-    
-        # Step 5: Compute cosine similarity in a vectorized manner
-        query_norm = np.linalg.norm(query)
-        candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-        dot_products = np.dot(candidate_vectors, query)  # Vectorized dot product
-        scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Avoid division by zero
-    
-        # Step 6: Sort by similarity score and select top-k
-        top_k_indices = np.argsort(-scores)[:top_k]
-        return candidates[top_k_indices].tolist()
+      if self.cluster_manager is None:
+          self.load_indices()
 
+      # Ensure the query vector is 1-dimensional
+      query = query.squeeze()  # Removes extra dimensions; ensures shape is (70,)
+      if query.ndim != 1 or query.shape[0] != DIMENSION:
+          raise ValueError(f"Query shape is invalid: {query.shape}. Expected shape is ({DIMENSION},)")
+
+      # Step 1: Calculate distances to centroids (vectorized)
+      centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
+      sorted_centroid_indices = np.argsort(centroid_distances)
+
+      # Step 2: Select top clusters to search
+      max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 8)
+      top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
+
+      # Step 3: Gather candidates from top clusters
+      candidates = set()
+      for cluster_id in top_cluster_ids:
+          cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
+          candidates.update(cluster_vector_indices)
+
+      candidates = np.array(list(candidates))
+
+      # Step 4: Batch process candidates to minimize memory usage
+      all_vectors = self.get_all_rows()
+      batch_size = max(1, int(20 * 1024 * 1024 / (DIMENSION * ELEMENT_SIZE)))  # Calculate batch size for ~20 MB
+      top_candidates = []
+
+      for start in range(0, len(candidates), batch_size):
+          end = min(start + batch_size, len(candidates))
+          candidate_batch = candidates[start:end]
+          candidate_vectors = all_vectors[candidate_batch]
+
+          # Compute cosine similarity for the batch
+          query_norm = np.linalg.norm(query)
+          candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
+          dot_products = np.dot(candidate_vectors, query)
+          scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Avoid division by zero
+
+          # Collect candidates with scores
+          batch_results = list(zip(candidate_batch, scores))
+          top_candidates.extend(batch_results)
+
+      # Step 5: Sort overall candidates by similarity score and select top-k
+      top_candidates.sort(key=lambda x: -x[1])  # Sort by descending similarity
+      return [idx for idx, _ in top_candidates[:top_k]]
 
 
 
