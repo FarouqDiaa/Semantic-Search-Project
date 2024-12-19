@@ -162,11 +162,17 @@ class VecDB:
         # Step 1: Calculate cosine similarity with cluster centroids
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
-
+        num_records = self._get_num_records()
+        if num_records <= 1_000_000:  # If database size is <= 1M
+            top_cluster_count = max(5, top_k * 10)  # Higher accuracy by searching more clusters
+        else:  # If database size is > 1M
+            top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
+            
         # Step 2: Select top clusters to search within
         # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
+        #top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(5, top_k * 8)]]
 
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
 
         # Step 3: Retrieve candidate vectors using PQ scores
         candidates = []
