@@ -57,35 +57,35 @@ class VecDB:
         if self.cluster_manager is None:
             self.load_indices()
     
-        # Step 1: Calculate distances to centroids (vectorized operation)
+        # Step 1: Calculate distances to centroids (vectorized)
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
         sorted_centroid_indices = np.argsort(centroid_distances)
     
         # Step 2: Select top clusters to search
-        max_clusters_to_search = max(5, min(len(sorted_centroid_indices), top_k * 8))
+        max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 8)
         top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
     
-        # Step 3: Retrieve candidate vectors from selected clusters (limit candidates per cluster)
+        # Step 3: Gather candidates from top clusters
         candidates = set()
-        max_candidates_per_cluster = 500  # Limit candidates to avoid redundant computations
         for cluster_id in top_cluster_ids:
             cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
-            candidates.update(cluster_vector_indices[:max_candidates_per_cluster])
+            candidates.update(cluster_vector_indices)
     
-        candidates = list(candidates)
+        candidates = np.array(list(candidates))
     
-        # Step 4: Preload all candidate vectors in a single read (minimize I/O operations)
-        candidate_vectors = np.array([self.get_one_row(idx) for idx in candidates])
+        # Step 4: Batch read candidate vectors (minimize I/O operations)
+        all_vectors = self.get_all_rows()
+        candidate_vectors = all_vectors[candidates]
+    
+        # Step 5: Compute cosine similarity in a vectorized manner
         query_norm = np.linalg.norm(query)
         candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-    
-        # Step 5: Compute cosine similarity in batches
         dot_products = np.dot(candidate_vectors, query)
-        scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Add epsilon to avoid division by zero
+        scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Avoid division by zero
     
-        # Step 6: Sort candidates by score and return top-k indices
-        sorted_indices = np.argsort(-scores)[:top_k]
-        return [candidates[idx] for idx in sorted_indices]
+        # Step 6: Sort by similarity score and select top-k
+        top_k_indices = np.argsort(-scores)[:top_k]
+        return candidates[top_k_indices].tolist()
 
 
     def get_all_rows(self) -> np.ndarray:
