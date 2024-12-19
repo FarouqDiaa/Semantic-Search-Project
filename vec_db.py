@@ -64,8 +64,9 @@ class VecDB:
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
-        # Step 2: Select more top clusters to search within
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(10, top_k * 16)]]
+        # Step 2: Dynamically adjust cluster exploration based on dataset size
+        max_clusters_to_search = max(10, min(len(sorted_clusters), top_k * 16))
+        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max_clusters_to_search]]
 
         # Step 3: Retrieve candidate vectors from top clusters
         candidates = []
@@ -75,14 +76,13 @@ class VecDB:
 
         # Step 4: Re-rank all candidates by cosine similarity
         final_candidates = []
-        for idx in candidates:
+        for idx in set(candidates):
             vector = self.get_one_row(idx)
             score = self._cal_score(query, vector)
             final_candidates.append((idx, score))
 
         final_candidates.sort(key=lambda x: -x[1])  # Sort by descending similarity
         return [idx for idx, _ in final_candidates[:top_k]]
-
 
     def retrieve_true(self, query: np.ndarray, top_k=5) -> List[int]:
         scores = []
@@ -121,7 +121,7 @@ class ClusterManager:
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
         vectors = vectors.astype(np.float32)
-        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=20, seed=DB_SEED_NUMBER)
+        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=25, seed=DB_SEED_NUMBER)
         kmeans.train(vectors)
         self.centroids = kmeans.centroids
 
