@@ -62,7 +62,7 @@ class VecDB:
         sorted_centroid_indices = np.argsort(distances)
 
         # Step 2: Select top clusters to search
-        max_clusters_to_search = max(5, min(len(sorted_centroid_indices), top_k * 6))
+        max_clusters_to_search = max(5, min(len(sorted_centroid_indices), top_k * 4))
         top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
 
         # Step 3: Retrieve candidate vectors from selected clusters
