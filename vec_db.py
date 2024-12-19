@@ -22,12 +22,23 @@ class VecDB:
                 os.remove(self.db_path)
             self.generate_database(db_size)
 
-    def generate_database(self, size: int) -> None:
+    def generate_database(self, size: int, batch_size: int = 1_000_000) -> None:
+        """Generate the database vectors in batches to avoid memory issues."""
         rng = np.random.default_rng(DB_SEED_NUMBER)
-        vectors = rng.random((size, DIMENSION), dtype=np.float32)  # Use float32 for compatibility with NumPy random
-        self._write_vectors_to_file(vectors)
+        num_batches = (size + batch_size - 1) // batch_size
+
+        mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=(size, DIMENSION))
+
+        for i in range(num_batches):
+            start = i * batch_size
+            end = min((i + 1) * batch_size, size)
+            vectors_batch = rng.random((end - start, DIMENSION), dtype=np.float32)
+            mmap_vectors[start:end] = vectors_batch
+            mmap_vectors.flush()
+        
         self._build_index(full_rebuild=True)
 
+    
     def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
         mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=vectors.shape)
         mmap_vectors[:] = vectors[:]
@@ -44,13 +55,14 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
 
-    def _build_index(self, full_rebuild=False):
+    def _build_index(self, full_rebuild=False, batch_size: int = 1_000_000):
+        """Build the clustering index using batch processing."""
         vectors = self.get_all_rows()
-
+        
         if full_rebuild:
-            num_clusters = max(1, min(len(vectors), int(len(vectors) ** 0.5 // 2)))
+            num_clusters = max(1, min(len(vectors), int(len(vectors) ** 0.25)))
             self.cluster_manager = ClusterManager(num_clusters, dimension=DIMENSION)
-            self.cluster_manager.cluster_vectors(vectors)
+            self.cluster_manager.cluster_vectors(vectors, batch_size)
 
             # Save centroids and assignments to disk
             np.save(os.path.join(self.index_path, "ivf_centroids.npy"), self.cluster_manager.centroids)
@@ -96,10 +108,12 @@ class VecDB:
         return [s[1] for s in scores]
 
     def get_all_rows(self) -> np.ndarray:
+        """Load all vectors using memory mapping."""
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         return np.memmap(self.db_path, dtype=np.float32, mode="r", shape=(num_records, DIMENSION))
 
     def get_one_row(self, row_num: int) -> np.ndarray:
+        """Retrieve a single vector using memory mapping."""
         offset = row_num * DIMENSION * ELEMENT_SIZE
         mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
         return np.array(mmap_vector[0])
@@ -120,16 +134,33 @@ class ClusterManager:
         self.centroids = None
         self.assignments = None
 
-    def cluster_vectors(self, vectors: np.ndarray) -> None:
-        vectors = vectors.astype(np.float32)
-        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=10, seed=DB_SEED_NUMBER)  # Reduced iterations
-        kmeans.train(vectors)
+    def cluster_vectors(self, vectors: np.ndarray, batch_size: int = 1_000_000) -> None:
+        """Cluster vectors in batches to avoid memory issues."""
+        num_vectors = vectors.shape[0]
+        num_batches = (num_vectors + batch_size - 1) // batch_size
+
+        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=10, seed=DB_SEED_NUMBER)
+
+        for i in range(num_batches):
+            start = i * batch_size
+            end = min((i + 1) * batch_size, num_vectors)
+            kmeans.train(vectors[start:end])
+
         self.centroids = kmeans.centroids.astype(np.float32)
 
         index = faiss.IndexFlatL2(self.dimension)
         index.add(self.centroids)
-        _, self.assignments = index.search(vectors, 1)
-        self.assignments = self.assignments.flatten()
+
+        assignments = []
+
+        for i in range(num_batches):
+            start = i * batch_size
+            end = min((i + 1) * batch_size, num_vectors)
+            _, batch_assignments = index.search(vectors[start:end], 1)
+            assignments.append(batch_assignments.flatten())
+
+        self.assignments = np.concatenate(assignments)
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
+        """Get indices of vectors assigned to a specific cluster."""
         return np.where(self.assignments == cluster_id)[0]
