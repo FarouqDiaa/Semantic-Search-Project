@@ -66,23 +66,21 @@ class VecDB:
         top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
 
         # Step 3: Retrieve candidate vectors from selected clusters
-        candidates = []
+        candidates = set()
         for cluster_id in top_cluster_ids:
             cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
             candidates.update(cluster_vector_indices)
 
-        candidates = list(set(candidates))
-        # Step 4: Retrieve candidate vectors in a batch
-        candidate_vectors = self.get_all_rows()[candidates]  # Batch retrieval
-    
-        # Step 5: Compute similarity scores in a vectorized way
-        scores = np.dot(candidate_vectors, query) / (
-            np.linalg.norm(candidate_vectors, axis=1) * np.linalg.norm(query)
-        )
-    
-        # Step 6: Sort candidates by similarity and return top_k results
-        top_indices = np.argsort(-scores)[:top_k]
-        return [candidates[i] for i in top_indices]
+        # Step 4: Re-rank candidates based on similarity
+        final_candidates = []
+        for idx in candidates:
+            vector = self.get_one_row(idx)
+            score = self._cal_score(query, vector)
+            final_candidates.append((idx, score))
+
+        final_candidates.sort(key=lambda x: -x[1])  # Sort by descending similarity
+        return [idx for idx, _ in final_candidates[:top_k]]
+
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
