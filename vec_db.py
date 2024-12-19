@@ -43,19 +43,16 @@ class VecDB:
         mmap_vectors.flush()
 
     def load_indices(self) -> None:
-        centroids_path = os.path.join(self.index_path, "ivf_centroids.npz")
-        assignments_path = os.path.join(self.index_path, "ivf_assignments.npz")
-        if not os.path.exists(centroids_path) or not os.path.exists(assignments_path):
-            raise FileNotFoundError(
-                f"Centroids or assignments files not found in {self.index_path}. "
-                "Ensure the index is built using `_build_index(full_rebuild=True)`."
-            )
+        centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
+        assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             # Load centroids and assignments
-            centroids = np.load(centroids_path)["arr_0"]
+            centroids = np.load(assignments_path)
+
             self.cluster_manager.centroids = centroids.astype(np.float32) / 255
 
-            assignments = np.load(assignments_path)["arr_0"]
+            assignments = np.load(centroids_path)
+
             self.cluster_manager.assignments = assignments
 
 
@@ -101,14 +98,13 @@ class VecDB:
             self.cluster_manager.cluster_vectors(vectors)
 
             # Save centroids and assignments to disk
-            centroids_path = os.path.join(self.index_path, "ivf_centroids.npz")
-            assignments_path = os.path.join(self.index_path, "ivf_assignments.npz")
+            centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
+            assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
             # TODO: changed
             compressed_centroids = (self.cluster_manager.centroids * 255).astype(np.uint8) 
-            np.savez_compressed(centroids_path, compressed_centroids)
-            # np.save(centroids_path, self.cluster_manager.centroids)
+            np.save(centroids_path, compressed_centroids)
+            np.save(assignments_path, self.cluster_manager.assignments)
 
-            np.savez_compressed(assignments_path, self.cluster_manager.assignments)
 
             # Create codebooks and save IDs with PQ codes
             for cluster_id in np.unique(self.cluster_manager.assignments):
