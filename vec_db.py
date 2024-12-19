@@ -23,14 +23,12 @@ class VecDB:
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
-        vectors = rng.random((size, DIMENSION), dtype=np.float32)
-        self._write_vectors_to_file(vectors)
+        vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=(size, DIMENSION))
+        for start in range(0, size, 100000):
+            end = min(start + 100000, size)
+            vectors[start:end] = rng.random((end - start, DIMENSION), dtype=np.float32)
+        vectors.flush()
         self._build_index(full_rebuild=True)
-
-    def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
-        mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=vectors.shape)
-        mmap_vectors[:] = vectors[:]
-        mmap_vectors.flush()
 
     def load_indices(self) -> None:
         centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
@@ -106,25 +104,33 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        vectors = vectors.astype(np.float32)
-        rng = np.random.default_rng(DB_SEED_NUMBER)
+        from faiss import Kmeans  # Import Faiss for k-means
 
-        # Initialize centroids randomly
-        centroids = vectors[rng.choice(len(vectors), self.num_clusters, replace=False)]
+        kmeans = Kmeans(d=self.dimension, k=self.num_clusters, niter=20, seed=DB_SEED_NUMBER)
+        batch_size = 500000
+        num_vectors = vectors.shape[0]
+        for start in range(0, num_vectors, batch_size):
+            end = min(start + batch_size, num_vectors)
+            kmeans.train(vectors[start:end].astype(np.float32))
 
-        for _ in range(15):  # Reduced number of iterations
-            # Assign vectors to closest centroids
-            distances = np.linalg.norm(vectors[:, None] - centroids[None, :], axis=2)
-            assignments = np.argmin(distances, axis=1)
+        self.centroids = kmeans.centroids
 
-            # Recompute centroids
-            for i in range(self.num_clusters):
-                cluster_points = vectors[assignments == i]
-                if len(cluster_points) > 0:
-                    centroids[i] = np.mean(cluster_points, axis=0)
+        # Adjust batch size dynamically for assignment computation
+        if num_vectors <= 10**6:
+            assignment_batch_size = 10000
+        elif num_vectors <= 15 * 10**6:
+            assignment_batch_size = 5000
+        else:
+            assignment_batch_size = 1000
 
-        self.centroids = centroids
+        # Efficient batch assignment
+        assignments = np.empty(num_vectors, dtype=np.int32)
+        for start in range(0, num_vectors, assignment_batch_size):
+            end = min(start + assignment_batch_size, num_vectors)
+            batch_distances = np.linalg.norm(vectors[start:end, None] - self.centroids[None, :], axis=2)
+            assignments[start:end] = np.argmin(batch_distances, axis=1)
+
         self.assignments = assignments
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
-        return np.where(self.assignments == cluster_id)[0]
+        return np.where(self.assignments == cluster_id)[0].tolist()
