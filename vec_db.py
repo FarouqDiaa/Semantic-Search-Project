@@ -63,7 +63,7 @@ class VecDB:
             self.cluster_manager.centroids = centroids
             self.cluster_manager.assignments = assignments
         else:
-            raise FileNotFoundError("Centroids or assignments files not found.")
+            raise FileNotFoundError("Centroids or assignments files not found in {centroids_path}")
 
         # Load cluster data for each cluster
         self.pq_codebooks = {}
