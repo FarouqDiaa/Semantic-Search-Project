@@ -4,7 +4,7 @@ from typing import List
 import faiss
 
 DB_SEED_NUMBER = 42
-ELEMENT_SIZE = np.dtype(np.float32).itemsize
+ELEMENT_SIZE = np.dtype(np.float16).itemsize  # Reduced to float16 to save memory
 DIMENSION = 70
 
 class VecDB:
@@ -24,12 +24,12 @@ class VecDB:
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
-        vectors = rng.random((size, DIMENSION), dtype=np.float32)
+        vectors = rng.random((size, DIMENSION), dtype=np.float16)  # Use float16 to reduce memory usage
         self._write_vectors_to_file(vectors)
         self._build_index(full_rebuild=True)
 
     def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
-        mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=vectors.shape)
+        mmap_vectors = np.memmap(self.db_path, dtype=np.float16, mode="w+", shape=vectors.shape)
         mmap_vectors[:] = vectors[:]
         mmap_vectors.flush()
 
@@ -39,7 +39,7 @@ class VecDB:
 
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
-            self.cluster_manager.centroids = np.load(centroids_path)
+            self.cluster_manager.centroids = np.load(centroids_path).astype(np.float16)
             self.cluster_manager.assignments = np.load(assignments_path)
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
@@ -61,11 +61,12 @@ class VecDB:
             self.load_indices()
 
         # Step 1: Calculate cosine similarity with cluster centroids
+        query = query.astype(np.float16)
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
 
         # Step 2: Dynamically adjust cluster exploration
-        max_clusters_to_search = max(5, min(len(sorted_clusters), top_k * 8))  # Tighter exploration factor
+        max_clusters_to_search = max(5, min(len(sorted_clusters), top_k * 4))  # Reduced exploration factor
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max_clusters_to_search]]
 
         # Step 3: Retrieve candidate vectors from top clusters
@@ -77,7 +78,7 @@ class VecDB:
         # Step 4: Use a fixed-size buffer for re-ranking to limit RAM usage
         final_candidates = []
         for idx in candidates:
-            vector = self.get_one_row(idx)
+            vector = self.get_one_row(idx).astype(np.float16)
             score = self._cal_score(query, vector)
             final_candidates.append((idx, score))
 
@@ -88,7 +89,7 @@ class VecDB:
         scores = []
         num_records = self._get_num_records()
         for row_num in range(num_records):
-            vector = self.get_one_row(row_num)
+            vector = self.get_one_row(row_num).astype(np.float16)
             score = self._cal_score(query, vector)
             scores.append((score, row_num))
         scores = sorted(scores, reverse=True)[:top_k]
@@ -96,11 +97,11 @@ class VecDB:
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
-        return np.memmap(self.db_path, dtype=np.float32, mode="r", shape=(num_records, DIMENSION))
+        return np.memmap(self.db_path, dtype=np.float16, mode="r", shape=(num_records, DIMENSION))
 
     def get_one_row(self, row_num: int) -> np.ndarray:
         offset = row_num * DIMENSION * ELEMENT_SIZE
-        mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
+        mmap_vector = np.memmap(self.db_path, dtype=np.float16, mode='r', shape=(1, DIMENSION), offset=offset)
         return np.array(mmap_vector[0])
 
     def _get_num_records(self) -> int:
@@ -120,14 +121,14 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        vectors = vectors.astype(np.float32)
-        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=15, seed=DB_SEED_NUMBER)  # Reduced iterations
-        kmeans.train(vectors)
-        self.centroids = kmeans.centroids
+        vectors = vectors.astype(np.float16)
+        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=10, seed=DB_SEED_NUMBER)  # Further reduced iterations
+        kmeans.train(vectors.astype(np.float32))  # Faiss requires float32 for training
+        self.centroids = kmeans.centroids.astype(np.float16)
 
         index = faiss.IndexFlatL2(self.dimension)
-        index.add(self.centroids)
-        _, self.assignments = index.search(vectors, 1)
+        index.add(self.centroids.astype(np.float32))
+        _, self.assignments = index.search(vectors.astype(np.float32), 1)
         self.assignments = self.assignments.flatten()
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
