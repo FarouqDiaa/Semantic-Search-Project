@@ -43,8 +43,8 @@ class VecDB:
         mmap_vectors.flush()
 
     def load_indices(self) -> None:
-        centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
-        assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
+        centroids_path = os.path.join(self.index_path, "ivf_centroids.npz")
+        assignments_path = os.path.join(self.index_path, "ivf_assignments.npz")
 
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             # Load centroids and assignments
@@ -79,7 +79,12 @@ class VecDB:
         
 
         if full_rebuild:
-            num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))) // 2
+            num_records = self._get_num_records()
+            if num_records <= 1_000_000:
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))
+            else:
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2)))) // 2
+            
             print(f"num_clusters = {num_clusters}")
             self.cluster_manager = ClusterManager(
                 num_clusters, dimension=DIMENSION
@@ -88,14 +93,14 @@ class VecDB:
             self.cluster_manager.cluster_vectors(vectors)
 
             # Save centroids and assignments to disk
-            centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
-            assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
+            centroids_path = os.path.join(self.index_path, "ivf_centroids.npz")
+            assignments_path = os.path.join(self.index_path, "ivf_assignments.npz")
             # TODO: changed
             compressed_centroids = (self.cluster_manager.centroids * 255).astype(np.uint8) 
-            np.save(centroids_path, compressed_centroids)
+            np.savez_compressed(centroids_path, compressed_centroids)
             # np.save(centroids_path, self.cluster_manager.centroids)
 
-            np.save(assignments_path, self.cluster_manager.assignments)
+            np.savez_compressed(assignments_path, self.cluster_manager.assignments)
 
             # Create codebooks and save IDs with PQ codes
             for cluster_id in np.unique(self.cluster_manager.assignments):
@@ -166,7 +171,7 @@ class VecDB:
         if num_records <= 1_000_000:  # If database size is <= 1M
             top_cluster_count = max(5, top_k * 10)  # Higher accuracy by searching more clusters
         else:  # If database size is > 1M
-            top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
+            top_cluster_count = max(3, top_k * 4)  # Improve time by limiting clusters
             
         # Step 2: Select top clusters to search within
         # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
@@ -245,7 +250,12 @@ class VecDB:
     def _train_pq_codebook(self, cluster_vectors: np.ndarray) -> np.ndarray:
         # num_clusters = max(1, min(len(cluster_vectors) // 5, 4096))
         # TODO: changed
-        num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 4)))) 
+        num_records = self._get_num_records()
+        if num_records <= 1_000_000:
+            num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors))*4))) 
+        else:
+            num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 4)))) 
+        
         
         kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
         kmeans.fit(cluster_vectors)
@@ -280,6 +290,9 @@ class VecDB:
         norm_vec2 = np.linalg.norm(vec2)
         cosine_similarity = dot_product / (norm_vec1 * norm_vec2)
         return cosine_similarity        
+    
+
+
 class ClusterManager:
     def __init__(self, num_clusters: int, dimension: int):
         self.num_clusters = num_clusters
