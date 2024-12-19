@@ -1,7 +1,6 @@
 import os
 import numpy as np
 from typing import List
-import faiss
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -60,21 +59,21 @@ class VecDB:
         if self.cluster_manager is None:
             self.load_indices()
 
-        # Step 1: Calculate cosine similarity with cluster centroids
-        cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
-        sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+        # Step 1: Calculate distances to all centroids
+        distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
+        sorted_centroid_indices = np.argsort(distances)
 
-        # Step 2: Dynamically adjust cluster exploration based on dataset size
-        max_clusters_to_search = max(5, min(len(sorted_clusters), top_k * 8))  # Adjusted exploration factor
-        top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max_clusters_to_search]]
+        # Step 2: Select top clusters to search
+        max_clusters_to_search = max(5, min(len(sorted_centroid_indices), top_k * 8))
+        top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
 
-        # Step 3: Retrieve candidate vectors from top clusters
+        # Step 3: Retrieve candidate vectors from selected clusters
         candidates = set()
         for cluster_id in top_cluster_ids:
             cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
             candidates.update(cluster_vector_indices)
 
-        # Step 4: Re-rank all candidates by cosine similarity
+        # Step 4: Re-rank candidates based on similarity
         final_candidates = []
         for idx in candidates:
             vector = self.get_one_row(idx)
@@ -84,16 +83,6 @@ class VecDB:
         final_candidates.sort(key=lambda x: -x[1])  # Sort by descending similarity
         return [idx for idx, _ in final_candidates[:top_k]]
 
-    def retrieve_true(self, query: np.ndarray, top_k=5) -> List[int]:
-        scores = []
-        num_records = self._get_num_records()
-        for row_num in range(num_records):
-            vector = self.get_one_row(row_num)
-            score = self._cal_score(query, vector)
-            scores.append((score, row_num))
-        scores = sorted(scores, reverse=True)[:top_k]
-        return [s[1] for s in scores]
-
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         return np.memmap(self.db_path, dtype=np.float32, mode="r", shape=(num_records, DIMENSION))
@@ -102,9 +91,6 @@ class VecDB:
         offset = row_num * DIMENSION * ELEMENT_SIZE
         mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
         return np.array(mmap_vector[0])
-
-    def _get_num_records(self) -> int:
-        return os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
 
     def _cal_score(self, vec1, vec2):
         dot_product = np.dot(vec1, vec2)
@@ -121,14 +107,24 @@ class ClusterManager:
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
         vectors = vectors.astype(np.float32)
-        kmeans = faiss.Kmeans(d=self.dimension, k=self.num_clusters, niter=15, seed=DB_SEED_NUMBER)  # Reduced iterations
-        kmeans.train(vectors)
-        self.centroids = kmeans.centroids
+        rng = np.random.default_rng(DB_SEED_NUMBER)
 
-        index = faiss.IndexFlatL2(self.dimension)
-        index.add(self.centroids)
-        _, self.assignments = index.search(vectors, 1)
-        self.assignments = self.assignments.flatten()
+        # Initialize centroids randomly
+        centroids = vectors[rng.choice(len(vectors), self.num_clusters, replace=False)]
+
+        for _ in range(15):  # Reduced number of iterations
+            # Assign vectors to closest centroids
+            distances = np.linalg.norm(vectors[:, None] - centroids[None, :], axis=2)
+            assignments = np.argmin(distances, axis=1)
+
+            # Recompute centroids
+            for i in range(self.num_clusters):
+                cluster_points = vectors[assignments == i]
+                if len(cluster_points) > 0:
+                    centroids[i] = np.mean(cluster_points, axis=0)
+
+        self.centroids = centroids
+        self.assignments = assignments
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
         return np.where(self.assignments == cluster_id)[0]
