@@ -47,11 +47,11 @@ class VecDB:
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             # Load centroids and assignments
-            centroids = np.load(assignments_path)
+            centroids = np.load(centroids_path)
 
             self.cluster_manager.centroids = centroids.astype(np.float32) / 255
 
-            assignments = np.load(centroids_path)
+            assignments = np.load(assignments_path)
 
             self.cluster_manager.assignments = assignments
 
