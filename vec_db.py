@@ -1,7 +1,6 @@
 import os
 import numpy as np
 from typing import List
-from concurrent.futures import ThreadPoolExecutor
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -12,8 +11,6 @@ class VecDB:
         self.db_path = database_file_path
         self.index_path = index_file_path
         self.cluster_manager = None
-        self.inverted_index = {}
-        self.vector_norms = None
 
         os.makedirs(self.index_path, exist_ok=True)
 
@@ -31,9 +28,6 @@ class VecDB:
             end = min(start + 100000, size)
             vectors[start:end] = rng.random((end - start, DIMENSION), dtype=np.float32)
         vectors.flush()
-
-        # Precompute norms for efficient cosine similarity
-        self.vector_norms = np.linalg.norm(vectors, axis=1)
         self._build_index(full_rebuild=True)
 
     def load_indices(self) -> None:
@@ -44,10 +38,6 @@ class VecDB:
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
             self.cluster_manager.centroids = np.load(centroids_path)
             self.cluster_manager.assignments = np.load(assignments_path)
-
-            # Rebuild the inverted index
-            for cluster_id in range(self.cluster_manager.num_clusters):
-                self.inverted_index[cluster_id] = np.where(self.cluster_manager.assignments == cluster_id)[0].tolist()
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
 
@@ -63,50 +53,55 @@ class VecDB:
             np.save(os.path.join(self.index_path, "ivf_centroids.npy"), self.cluster_manager.centroids)
             np.save(os.path.join(self.index_path, "ivf_assignments.npy"), self.cluster_manager.assignments)
 
-            # Build the inverted index
-            for cluster_id in range(num_clusters):
-                self.inverted_index[cluster_id] = np.where(self.cluster_manager.assignments == cluster_id)[0].tolist()
-
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
         if self.cluster_manager is None:
             self.load_indices()
-
-        # Step 1: Calculate distances to centroids using vectorized operations
-        diff = self.cluster_manager.centroids - query
-        distances = np.sqrt(np.einsum('ij,ij->i', diff, diff))
-        sorted_centroid_indices = np.argsort(distances)
-
+    
+        # Step 1: Calculate distances to centroids (vectorized operation)
+        centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
+        sorted_centroid_indices = np.argsort(centroid_distances)
+    
         # Step 2: Select top clusters to search
         max_clusters_to_search = max(5, min(len(sorted_centroid_indices), top_k * 8))
         top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
-
-        # Step 3: Retrieve candidate vectors from selected clusters
-        max_candidates_per_cluster = 500  # Limit candidates per cluster
+    
+        # Step 3: Retrieve candidate vectors from selected clusters (limit candidates per cluster)
         candidates = set()
+        max_candidates_per_cluster = 500  # Limit candidates to avoid redundant computations
         for cluster_id in top_cluster_ids:
-            cluster_vector_indices = self.inverted_index[cluster_id][:max_candidates_per_cluster]
-            candidates.update(cluster_vector_indices)
-
-        # Step 4: Batch compute similarities for re-ranking
-        candidate_vectors = self.get_all_rows()[list(candidates)]
-        candidate_norms = self.vector_norms[list(candidates)]
+            cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
+            candidates.update(cluster_vector_indices[:max_candidates_per_cluster])
+    
+        candidates = list(candidates)
+    
+        # Step 4: Preload all candidate vectors in a single read (minimize I/O operations)
+        candidate_vectors = np.array([self.get_one_row(idx) for idx in candidates])
         query_norm = np.linalg.norm(query)
-        scores = np.dot(candidate_vectors, query) / (candidate_norms * query_norm)
+        candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
+    
+        # Step 5: Compute cosine similarity in batches
+        dot_products = np.dot(candidate_vectors, query)
+        scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Add epsilon to avoid division by zero
+    
+        # Step 6: Sort candidates by score and return top-k indices
+        sorted_indices = np.argsort(-scores)[:top_k]
+        return [candidates[idx] for idx in sorted_indices]
 
-        # Step 5: Return top-k results
-        sorted_candidates = sorted(zip(candidates, scores), key=lambda x: -x[1])
-        return [idx for idx, _ in sorted_candidates[:top_k]]
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         return np.memmap(self.db_path, dtype=np.float32, mode="r", shape=(num_records, DIMENSION))
+
+    def get_one_row(self, row_num: int) -> np.ndarray:
+        offset = row_num * DIMENSION * ELEMENT_SIZE
+        mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(1, DIMENSION), offset=offset)
+        return np.array(mmap_vector[0])
 
     def _cal_score(self, vec1, vec2):
         dot_product = np.dot(vec1, vec2)
         norm_vec1 = np.linalg.norm(vec1)
         norm_vec2 = np.linalg.norm(vec2)
         return dot_product / (norm_vec1 * norm_vec2)
-
 
 class ClusterManager:
     def __init__(self, num_clusters: int, dimension: int):
@@ -119,12 +114,30 @@ class ClusterManager:
         from faiss import Kmeans  # Import Faiss for k-means
 
         kmeans = Kmeans(d=self.dimension, k=self.num_clusters, niter=20, seed=DB_SEED_NUMBER)
-        kmeans.train(vectors.astype(np.float32))
+        batch_size = 500000
+        num_vectors = vectors.shape[0]
+        for start in range(0, num_vectors, batch_size):
+            end = min(start + batch_size, num_vectors)
+            kmeans.train(vectors[start:end].astype(np.float32))
+
         self.centroids = kmeans.centroids
 
-        # Assign clusters to vectors
-        batch_distances = np.linalg.norm(vectors[:, None] - self.centroids[None, :], axis=2)
-        self.assignments = np.argmin(batch_distances, axis=1)
+        # Adjust batch size dynamically for assignment computation
+        if num_vectors <= 10**6:
+            assignment_batch_size = 10000
+        elif num_vectors <= 15 * 10**6:
+            assignment_batch_size = 5000
+        else:
+            assignment_batch_size = 1000
+
+        # Efficient batch assignment
+        assignments = np.empty(num_vectors, dtype=np.int32)
+        for start in range(0, num_vectors, assignment_batch_size):
+            end = min(start + assignment_batch_size, num_vectors)
+            batch_distances = np.linalg.norm(vectors[start:end, None] - self.centroids[None, :], axis=2)
+            assignments[start:end] = np.argmin(batch_distances, axis=1)
+
+        self.assignments = assignments
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
-        return self.inverted_index.get(cluster_id, [])
+        return np.where(self.assignments == cluster_id)[0].tolist()
