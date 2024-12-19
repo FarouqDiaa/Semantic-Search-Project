@@ -48,8 +48,12 @@ class VecDB:
 
         if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             # Load centroids and assignments
-            centroids = np.load(centroids_path)
-            assignments = np.load(assignments_path)
+            centroids = np.load(centroids_path)["arr_0"]
+            self.cluster_manager.centroids = centroids.astype(np.float32) / 255
+
+            assignments = np.load(assignments_path)["arr_0"]
+            self.cluster_manager.assignments = assignments
+
 
             self.cluster_manager = ClusterManager(num_clusters=len(centroids), dimension=DIMENSION)
             self.cluster_manager.centroids = centroids
