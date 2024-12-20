@@ -1,6 +1,8 @@
 import os
 import numpy as np
 from typing import List
+from concurrent.futures import ThreadPoolExecutor
+import heapq
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -23,14 +25,12 @@ class VecDB:
 
     def generate_database(self, size: int) -> None:
         rng = np.random.default_rng(DB_SEED_NUMBER)
-        vectors = rng.random((size, DIMENSION), dtype=np.float32)
-        self._write_vectors_to_file(vectors)
-        self._build_index(full_rebuild=True)  # Full rebuild for a new database
-
-    def _write_vectors_to_file(self, vectors: np.ndarray) -> None:
-        mmap_vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=vectors.shape)
-        mmap_vectors[:] = vectors[:]
-        mmap_vectors.flush()
+        vectors = np.memmap(self.db_path, dtype=np.float32, mode="w+", shape=(size, DIMENSION))
+        for start in range(0, size, 100000):
+            end = min(start + 100000, size)
+            vectors[start:end] = rng.random((end - start, DIMENSION), dtype=np.float32)
+        vectors.flush()
+        self._build_index(full_rebuild=True)
 
     def load_indices(self) -> None:
         centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
@@ -55,54 +55,68 @@ class VecDB:
             np.save(os.path.join(self.index_path, "ivf_centroids.npy"), self.cluster_manager.centroids)
             np.save(os.path.join(self.index_path, "ivf_assignments.npy"), self.cluster_manager.assignments)
 
+
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
-        if self.cluster_manager is None:
-            self.load_indices()
+      if self.cluster_manager is None:
+          self.load_indices()
 
-        # Ensure the query vector is 1-dimensional
-        query = query.squeeze()
-        if query.ndim != 1 or query.shape[0] != DIMENSION:
-            raise ValueError(f"Query shape is invalid: {query.shape}. Expected shape is ({DIMENSION},)")
+      # Ensure the query vector is 1-dimensional
+      query = query.squeeze()
+      if query.ndim != 1 or query.shape[0] != DIMENSION:
+          raise ValueError(f"Query shape is invalid: {query.shape}. Expected shape is ({DIMENSION},)")
 
-        # Step 1: Calculate distances to centroids
-        centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
-        sorted_centroid_indices = np.argsort(centroid_distances)
+      # Step 1: Calculate distances to centroids (vectorized)
+      centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
+      sorted_centroid_indices = np.argsort(centroid_distances)
 
-        # Step 2: Select top clusters to search
-        max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 8)
-        top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
+      # Step 2: Dynamically adjust the number of clusters to search
+      max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 4)
+      top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
 
-        # Step 3: Gather candidates from top clusters
-        candidates = set()
-        for cluster_id in top_cluster_ids:
-            cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
-            candidates.update(cluster_vector_indices)
+      # Step 3: Gather candidate indices efficiently
+      candidate_indices = np.hstack([
+          np.where(self.cluster_manager.assignments == cluster_id)[0]
+          for cluster_id in top_cluster_ids
+      ])
+      candidate_indices = np.unique(candidate_indices)
 
-        candidates = np.array(list(candidates))
+      # Ensure candidate indices are within bounds
+      db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
+      candidate_indices = candidate_indices[candidate_indices < db_size]
 
-        # Step 4: Batch process candidates to minimize memory usage
-        all_vectors = self.get_all_rows()
-        batch_size = max(1, int(50 * 1024 * 1024 / (DIMENSION * ELEMENT_SIZE)))  # Calculate batch size for ~50 MB
-        top_candidates = []
+      # Step 4: Process candidates in chunks to balance memory and time
+      query_norm = np.linalg.norm(query)
+      top_candidates = []
+      chunk_size = 600  # Adjust chunk size based on available memory
 
-        for start in range(0, len(candidates), batch_size):
-            end = min(start + batch_size, len(candidates))
-            candidate_batch = candidates[start:end]
-            candidate_vectors = all_vectors[candidate_batch]
+      for start in range(0, len(candidate_indices), chunk_size):
+          end = min(start + chunk_size, len(candidate_indices))
+          chunk_indices = candidate_indices[start:end]
 
-            # Compute cosine similarity for the batch
-            query_norm = np.linalg.norm(query)
-            candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-            dot_products = np.dot(candidate_vectors, query)
-            scores = dot_products / (candidate_norms * query_norm + 1e-10)  # Avoid division by zero
+          # Load a chunk of candidate vectors
+          candidate_vectors = np.memmap(
+              self.db_path,
+              dtype=np.float32,
+              mode='r',
+              shape=(db_size, DIMENSION)
+          )[chunk_indices]
 
-            # Collect candidates with scores
-            batch_results = list(zip(candidate_batch, scores))
-            top_candidates.extend(batch_results)
+          # Compute norms and cosine similarity in batch
+          candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
+          dot_products = np.dot(candidate_vectors, query)
+          scores = dot_products / (candidate_norms * query_norm + 1e-10)
 
-        # Step 5: Sort overall candidates by similarity score and select top-k
-        top_candidates.sort(key=lambda x: -x[1])
-        return [idx for idx, _ in top_candidates[:top_k]]
+          # Use a heap to maintain the top-k candidates
+          for idx, score in zip(chunk_indices, scores):
+              if len(top_candidates) < top_k:
+                  heapq.heappush(top_candidates, (score, idx))
+              else:
+                  heapq.heappushpop(top_candidates, (score, idx))
+
+      # Step 5: Sort final top-k candidates by score
+      top_candidates = sorted(top_candidates, key=lambda x: -x[0])
+      return [idx for _, idx in top_candidates]
+
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
@@ -127,7 +141,7 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        from faiss import Kmeans
+        from faiss import Kmeans  # Import Faiss for k-means
 
         kmeans = Kmeans(d=self.dimension, k=self.num_clusters, niter=20, seed=DB_SEED_NUMBER)
         batch_size = 500000
@@ -138,6 +152,7 @@ class ClusterManager:
 
         self.centroids = kmeans.centroids
 
+        # batch size dynamically for assignment computation
         if num_vectors <= 10**6:
             assignment_batch_size = 10000
         elif num_vectors <= 15 * 10**6:
@@ -145,6 +160,7 @@ class ClusterManager:
         else:
             assignment_batch_size = 1000
 
+        # Efficient batch assignment
         assignments = np.empty(num_vectors, dtype=np.int32)
         for start in range(0, num_vectors, assignment_batch_size):
             end = min(start + assignment_batch_size, num_vectors)
