@@ -14,7 +14,6 @@ class VecDB:
         self.index_path = index_file_path
         self.cluster_manager = None
 
-        os.makedirs(self.index_path, exist_ok=True)
 
         if new_db:
             if db_size is None:
@@ -57,6 +56,7 @@ class VecDB:
 
 
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
+      os.makedirs(self.index_path, exist_ok=True)
       if self.cluster_manager is None:
           self.load_indices()
 
