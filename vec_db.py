@@ -79,76 +79,56 @@ class VecDB:
         top_cluster_ids = centroid_distances[:max_clusters_to_search]
 
         # Step 3: Gather candidate indices efficiently
-        assignment_size = np.dtype(np.int32).itemsize
-        assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
-        candidate_indices = []
-
-        assignments = np.memmap(assignments_path, dtype=np.int32, mode='r')
-        try:
-            for cluster_id in top_cluster_ids:
-                # Dynamically load the assignments for this cluster
-                cluster_indices = np.where(assignments == cluster_id)[0]
-                candidate_indices.extend(cluster_indices)
-        finally:
-            del assignments  # Ensure the memmap is properly released
-
-
-        candidate_indices = np.unique(candidate_indices)
+        candidate_indices = np.hstack([
+            np.where(self.cluster_manager.assignments == cluster_id)[0]
+            for cluster_id in top_cluster_ids
+        ])
+        del self.cluster_manager.assignments
         del top_cluster_ids
 
-        # Ensure candidate indices are within bounds
+        candidate_indices = np.unique(candidate_indices)
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
 
-        # Step 4: Process candidates in chunks to balance memory and time
+        # Step 4: Process candidates in chunks using offsets
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 600  # Adjust chunk size based on available memory
+        chunk_size = 200  # Adjust chunk size based on memory constraints
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
-            # Calculate offsets for all indices in the chunk
+            # Calculate offsets for the current chunk
             offsets = chunk_indices * DIMENSION * ELEMENT_SIZE
+            chunk_vectors = np.empty((len(chunk_indices), DIMENSION), dtype=np.float32)
 
-            # Load candidate vectors dynamically for each offset
-            candidate_vectors = np.array([
-                np.memmap(
-                    self.db_path,
-                    dtype=np.float32,
-                    mode='r',
-                    offset=offset,
-                    shape=(1, DIMENSION)
-                )[0]
-                for offset in offsets
-            ])
+            # Load only the required chunk vectors
+            for i, offset in enumerate(offsets):
+                mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(DIMENSION,), offset=offset)
+                chunk_vectors[i] = np.array(mmap_vector)
+                del mmap_vector
 
-            # Compute norms and cosine similarity in batch
-            candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-            dot_products = np.dot(candidate_vectors, query)
+            # Compute norms and cosine similarity for the chunk
+            candidate_norms = np.linalg.norm(chunk_vectors, axis=1)
+            dot_products = np.dot(chunk_vectors, query)
             scores = dot_products / (candidate_norms * query_norm + 1e-10)
-            del candidate_vectors
-            del dot_products
-            del candidate_norms
 
-            # Use a heap to maintain the top-k candidates
+            # Maintain the top-k candidates using a heap
             for idx, score in zip(chunk_indices, scores):
                 if len(top_candidates) < top_k:
                     heapq.heappush(top_candidates, (score, idx))
                 else:
                     heapq.heappushpop(top_candidates, (score, idx))
+            del chunk_vectors
             del chunk_indices
-
-        gc.collect()
+            gc.collect()
 
         # Step 5: Sort final top-k candidates by score
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
-        self.cluster_manager = None
         gc.collect()
         return [idx for _, idx in top_candidates]
 
-        
 
 
     def get_all_rows(self) -> np.ndarray:
