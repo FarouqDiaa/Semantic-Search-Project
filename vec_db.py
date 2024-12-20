@@ -114,7 +114,6 @@ class VecDB:
             scores = dot_products / (candidate_norms * query_norm + 1e-10)
             del dot_products
             del candidate_norms
-            del query_norm
             # Use a heap to maintain the top-k candidates
             for idx, score in zip(chunk_indices, scores):
                 if len(top_candidates) < top_k:
