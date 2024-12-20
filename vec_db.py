@@ -100,7 +100,7 @@ class VecDB:
             chunk_indices = candidate_indices[start:end]
 
             # Calculate offsets for the current chunk
-            offsets = chunk_indices * DIMENSION * ELEMENT_SIZE
+            offsets = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
             chunk_vectors = np.empty((len(chunk_indices), DIMENSION), dtype=np.float32)
 
             # Load only the required chunk vectors
