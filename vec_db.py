@@ -73,7 +73,6 @@ class VecDB:
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
         del self.cluster_manager.centroids
         centroid_distances = np.argsort(centroid_distances)
-
         # Step 2: Dynamically adjust the number of clusters to search
         max_clusters_to_search = min(len(centroid_distances), top_k * 4)
         top_cluster_ids = centroid_distances[:max_clusters_to_search]
@@ -85,45 +84,52 @@ class VecDB:
         ])
         del self.cluster_manager.assignments
         del top_cluster_ids
-
         candidate_indices = np.unique(candidate_indices)
+        # Ensure candidate indices are within bounds
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
 
-        # Step 4: Process candidates in chunks using offsets
+        # Step 4: Process candidates in chunks to balance memory and time
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 900  # Adjust chunk size based on memory constraints
+        chunk_size = 200  # Adjust chunk size based on available memory
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
-            # Calculate offsets for the current chunk
-            offsets = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
-            chunk_vectors = np.empty((len(chunk_indices), DIMENSION), dtype=np.float32)
+            candidate_vectors = []
+            for idx in chunk_indices:
+                candidate_vectors.append(self.get_one_row(idx))
+                
+            # Load a chunk of candidate vectors
+            # candidate_vectors = np.memmap(
+            #     self.db_path,
+            #     dtype=np.float32,
+            #     mode='r',
+            #     offset= ,
+            #     shape=(db_size, DIMENSION)
+            # )[chunk_indices]
 
-            # Load only the required chunk vectors
-            for i, offset in enumerate(offsets):
-                mmap_vector = np.memmap(self.db_path, dtype=np.float32, mode='r', shape=(DIMENSION,), offset=offset)
-                chunk_vectors[i] = np.array(mmap_vector)
-                del mmap_vector
+            # Compute norms and cosine similarity in batch
+            candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
 
-            # Compute norms and cosine similarity for the chunk
-            candidate_norms = np.linalg.norm(chunk_vectors, axis=1)
-            dot_products = np.dot(chunk_vectors, query)
+            dot_products = np.dot(candidate_vectors, query)
+            del candidate_vectors
             scores = dot_products / (candidate_norms * query_norm + 1e-10)
-
-            # Maintain the top-k candidates using a heap
+            del dot_products
+            del candidate_norms
+            # Use a heap to maintain the top-k candidates
             for idx, score in zip(chunk_indices, scores):
                 if len(top_candidates) < top_k:
                     heapq.heappush(top_candidates, (score, idx))
                 else:
                     heapq.heappushpop(top_candidates, (score, idx))
-            del chunk_vectors
             del chunk_indices
-            gc.collect()
+                    
+        gc.collect()
 
+            
         # Step 5: Sort final top-k candidates by score
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         self.cluster_manager = None
