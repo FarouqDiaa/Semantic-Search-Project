@@ -107,7 +107,6 @@ class VecDB:
             )[chunk_indices]
 
             # Compute norms and cosine similarity in batch
-            del chunk_indices
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
 
             dot_products = np.dot(candidate_vectors, query)
