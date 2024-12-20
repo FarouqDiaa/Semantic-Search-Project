@@ -71,7 +71,6 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids (vectorized)
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
-        del self.cluster_manager.centroids
         sorted_centroid_indices = np.argsort(centroid_distances)
         del centroid_distances
         # Step 2: Dynamically adjust the number of clusters to search
@@ -83,7 +82,6 @@ class VecDB:
             np.where(self.cluster_manager.assignments == cluster_id)[0]
             for cluster_id in top_cluster_ids
         ])
-        del self.cluster_manager.assignments
         candidate_indices = np.unique(candidate_indices)
         # Ensure candidate indices are within bounds
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
