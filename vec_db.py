@@ -93,7 +93,7 @@ class VecDB:
         # Step 4: Process candidates in chunks to balance memory and time
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 600  # Adjust chunk size based on available memory
+        chunk_size = 400  # Adjust chunk size based on available memory
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
