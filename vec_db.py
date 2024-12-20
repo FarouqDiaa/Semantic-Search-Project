@@ -183,21 +183,43 @@ class VecDB:
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
 
-        # Step 3: Retrieve candidate vectors using PQ scores
         candidates = []
         for cluster_id in top_cluster_ids:
-            # Get indices of vectors in this cluster
-            cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
-            cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
+            # Preload cluster data into memory
+            cluster_data = self.pq_codebooks.get(cluster_id)
+            if cluster_data is None:
+                cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
+                self.pq_codebooks[cluster_id] = {
+                    "ids": cluster_data["ids"],
+                    "codes": cluster_data["codes"],
+                    "codebook": cluster_data["codebook"],
+                }
 
-            # Retrieve PQ codes and codebook
-            pq_codes = cluster_data["codes"]
-            codebook = cluster_data["codebook"]
+            pq_codes = self.pq_codebooks[cluster_id]["codes"]
+            codebook = self.pq_codebooks[cluster_id]["codebook"]
+            cluster_vector_indices = self.pq_codebooks[cluster_id]["ids"]
 
-            # Perform PQ search to find top candidates
+            # Perform PQ search
             pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
             for idx, pq_score in pq_results:
-                candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
+                candidates.append((cluster_vector_indices[idx], pq_score))
+
+
+        # Step 3: Retrieve candidate vectors using PQ scores
+        # candidates = []
+        # for cluster_id in top_cluster_ids:
+        #     # Get indices of vectors in this cluster
+        #     cluster_vector_indices = self.cluster_manager.get_vectors_for_cluster(cluster_id)
+        #     cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
+
+        #     # Retrieve PQ codes and codebook
+        #     pq_codes = cluster_data["codes"]
+        #     codebook = cluster_data["codebook"]
+
+        #     # Perform PQ search to find top candidates
+        #     pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
+        #     for idx, pq_score in pq_results:
+        #         candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
 
         # Step 4: Retrieve original vectors and re-rank by full similarity
         final_candidates = []
@@ -258,7 +280,7 @@ class VecDB:
         if num_records <= 1_000_000:
             num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors))*4))) 
         else:
-            num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 4)))) 
+            num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 5)))) 
         
         
         kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
