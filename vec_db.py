@@ -126,6 +126,7 @@ class VecDB:
 
         # Step 5: Sort final top-k candidates by score
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
+        self.cluster_manager = None
         gc.collect()
         return [idx for _, idx in top_candidates]
 
