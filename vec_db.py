@@ -110,7 +110,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         num_records = self._get_num_records()
         if num_records <= 1_000_000: 
-            top_cluster_count = max(5, top_k * 12)  # Higher accuracy by searching more clusters
+            top_cluster_count = max(5, top_k * 15)  # Higher accuracy by searching more clusters
         else:
             top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
 
