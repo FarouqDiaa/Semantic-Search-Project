@@ -173,9 +173,9 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         num_records = self._get_num_records()
         if num_records <= 1_000_000:  # If database size is <= 1M
-            top_cluster_count = max(5, top_k * 15)  # Higher accuracy by searching more clusters
+            top_cluster_count = max(5, top_k * 12)  # Higher accuracy by searching more clusters
         else:  # If database size is > 1M
-            top_cluster_count = max(3, top_k * 10)  # Improve time by limiting clusters
+            top_cluster_count = max(3, top_k * 7)  # Improve time by limiting clusters
             
         # Step 2: Select top clusters to search within
         # top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:max(50, top_k * 8)]]
