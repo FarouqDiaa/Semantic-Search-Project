@@ -83,7 +83,7 @@ class VecDB:
         if full_rebuild:
             num_records = self._get_num_records()
             if num_records <= 1_000_000:
-                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 4))))
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))
             else:
                 num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 4)))) // 2
             
