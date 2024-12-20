@@ -191,17 +191,10 @@ class VecDB:
             num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors))))) 
         else:
             num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 3)))) 
-        
-        batch_kmeans = MiniBatchKMeans(
-        n_clusters=num_clusters,
-        random_state=DB_SEED_NUMBER,
-        batch_size=1024,  # Start with 1024, adjust based on available memory
-        max_iter=20,  # Lower iterations for faster convergence
-        )
-        #kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
-        #kmeans.fit(cluster_vectors)
-        batch_kmeans.fit(cluster_vectors)
-        return batch_kmeans.cluster_centers_
+
+        kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
+        kmeans.fit(cluster_vectors)
+        return kmeans.cluster_centers_
 
     def get_all_rows(self) -> np.ndarray:
         # Take care this load all the data in memory
