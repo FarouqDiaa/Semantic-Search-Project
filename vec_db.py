@@ -116,7 +116,7 @@ class VecDB:
         if num_records <= 1_000_000: 
             top_cluster_count = max(5, top_k * 15)  # Higher accuracy by searching more clusters
         else:
-            top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
+            top_cluster_count = max(3, top_k * 7)  # Improve time by limiting clusters
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
 
