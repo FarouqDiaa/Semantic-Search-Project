@@ -75,7 +75,7 @@ class VecDB:
             if num_records <= 1_000_000:
                 num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors)))))
             else:
-                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))//0.6
             
             print(f"num_clusters = {num_clusters}")
             self.cluster_manager = ClusterManager(
