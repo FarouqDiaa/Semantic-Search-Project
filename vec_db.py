@@ -41,9 +41,7 @@ class VecDB:
             # Load cluster manager and its data
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
             self.cluster_manager.centroids = np.load(centroids_path)
-            gc.collect()  # Clean up after loading centroids
             self.cluster_manager.assignments = np.load(assignments_path)
-            gc.collect()  # Clean up after loading assignments
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
 
@@ -73,8 +71,9 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids (vectorized)
         centroid_distances = np.linalg.norm(self.cluster_manager.centroids - query, axis=1)
+        del self.cluster_manager.centroids
         sorted_centroid_indices = np.argsort(centroid_distances)
-
+        del centroid_distances
         # Step 2: Dynamically adjust the number of clusters to search
         max_clusters_to_search = min(len(sorted_centroid_indices), top_k * 4)
         top_cluster_ids = sorted_centroid_indices[:max_clusters_to_search]
@@ -84,8 +83,8 @@ class VecDB:
             np.where(self.cluster_manager.assignments == cluster_id)[0]
             for cluster_id in top_cluster_ids
         ])
+        del self.cluster_manager.assignments
         candidate_indices = np.unique(candidate_indices)
-
         # Ensure candidate indices are within bounds
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
@@ -93,7 +92,7 @@ class VecDB:
         # Step 4: Process candidates in chunks to balance memory and time
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 400  # Adjust chunk size based on available memory
+        chunk_size = 600  # Adjust chunk size based on available memory
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
@@ -108,10 +107,15 @@ class VecDB:
             )[chunk_indices]
 
             # Compute norms and cosine similarity in batch
+            del chunk_indices
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-            dot_products = np.dot(candidate_vectors, query)
-            scores = dot_products / (candidate_norms * query_norm + 1e-10)
 
+            dot_products = np.dot(candidate_vectors, query)
+            del candidate_vectors
+            scores = dot_products / (candidate_norms * query_norm + 1e-10)
+            del dot_products
+            del candidate_norms
+            del query_norm
             # Use a heap to maintain the top-k candidates
             for idx, score in zip(chunk_indices, scores):
                 if len(top_candidates) < top_k:
@@ -119,13 +123,11 @@ class VecDB:
                 else:
                     heapq.heappushpop(top_candidates, (score, idx))
 
-            # Clean up the current chunk
-            del candidate_vectors
-            gc.collect()
-
+            
+            
+            
         # Step 5: Sort final top-k candidates by score
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
-        gc.collect()
         return [idx for _, idx in top_candidates]
 
         
