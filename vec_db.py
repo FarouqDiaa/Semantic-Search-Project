@@ -180,8 +180,10 @@ class ClusterManager:
             end = min(start + assignment_batch_size, num_vectors)
             batch_distances = np.linalg.norm(vectors[start:end, None] - self.centroids[None, :], axis=2)
             assignments[start:end] = np.argmin(batch_distances, axis=1)
+            del batch_distances
 
         self.assignments = assignments
+        del assignments
 
     def get_vectors_for_cluster(self, cluster_id: int) -> List[int]:
         return np.where(self.assignments == cluster_id)[0].tolist()
