@@ -163,9 +163,9 @@ class ClusterManager:
         for start in range(0, num_vectors, batch_size):
             end = min(start + batch_size, num_vectors)
             kmeans.train(vectors[start:end].astype(np.float32))
-
+        
         self.centroids = kmeans.centroids
-
+        del kmeans
         # batch size dynamically for assignment computation
         if num_vectors <= 10**6:
             assignment_batch_size = 10000
