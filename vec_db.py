@@ -45,7 +45,7 @@ class VecDB:
             centroids = np.load(centroids_path)
             num_clusters = len(centroids)
             self.cluster_manager = ClusterManager(num_clusters=num_clusters, dimension=DIMENSION)
-            self.cluster_manager.centroids = centroids
+            self.cluster_manager.centroids = centroids.astype(np.float32) / 255
         else:
             raise FileNotFoundError("Centroids or assignments files not found in {centroids_path}")
 
@@ -72,10 +72,13 @@ class VecDB:
 
         if full_rebuild:
             num_records = self._get_num_records()
+            print(f"num_records = {num_records}")
             if num_records <= 1_000_000:
                 num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors)))))
+            elif num_records <= 10_000_000:
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 6))))
             else:
-                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))//0.6
+                num_clusters=max(1, min(len(vectors), int(np.sqrt(len(vectors) / 2))))//3
             
             print(f"num_clusters = {num_clusters}")
             self.cluster_manager = ClusterManager(
@@ -83,7 +86,8 @@ class VecDB:
             )
             self.cluster_manager.cluster_vectors(vectors)
             centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
-            np.save(centroids_path, self.cluster_manager.centroids)
+            compressed_centroids = (self.cluster_manager.centroids * 255).astype(np.uint8) 
+            np.save(centroids_path, compressed_centroids)
 
             for cluster_id in range(self.cluster_manager.num_clusters):
                 cluster_vector_indices = np.where(self.cluster_manager.assignments == cluster_id)[0]
@@ -183,13 +187,21 @@ class VecDB:
         num_records = self._get_num_records()
         if num_records <= 1_000_000:
             num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors))*4))) 
+        elif num_records <= 10_000_000:
+            num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors))))) 
         else:
             num_clusters = max(1, min(len(cluster_vectors), int(np.sqrt(len(cluster_vectors) / 3)))) 
         
-        
-        kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
-        kmeans.fit(cluster_vectors)
-        return kmeans.cluster_centers_
+        batch_kmeans = MiniBatchKMeans(
+        n_clusters=num_clusters,
+        random_state=DB_SEED_NUMBER,
+        batch_size=1024,  # Start with 1024, adjust based on available memory
+        max_iter=20,  # Lower iterations for faster convergence
+        )
+        #kmeans = KMeans(n_clusters=num_clusters, random_state=DB_SEED_NUMBER)
+        #kmeans.fit(cluster_vectors)
+        batch_kmeans.fit(cluster_vectors)
+        return batch_kmeans.cluster_centers_
 
     def get_all_rows(self) -> np.ndarray:
         # Take care this load all the data in memory
