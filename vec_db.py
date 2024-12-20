@@ -92,23 +92,21 @@ class VecDB:
         # Step 4: Process candidates in chunks to balance memory and time
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 200  # Adjust chunk size based on available memory
+        chunk_size = 600  # Adjust chunk size based on available memory
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
-            
-            candidate_vectors = []
-            for idx in chunk_indices:
-                candidate_vectors.append(self.get_one_row(idx))
 
+            offset = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
             # Load a chunk of candidate vectors
-            # candidate_vectors = np.memmap(
-            #     self.db_path,
-            #     dtype=np.float32,
-            #     mode='r',
-            #     shape=(db_size, DIMENSION)
-            # )[chunk_indices]
+            candidate_vectors = np.memmap(
+                self.db_path,
+                dtype=np.float32,
+                mode='r',
+                offset=offset,
+                shape=(db_size, DIMENSION)
+            )[chunk_indices]
 
             # Compute norms and cosine similarity in batch
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
