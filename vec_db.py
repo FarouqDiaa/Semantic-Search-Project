@@ -41,7 +41,8 @@ class VecDB:
             # Load cluster manager and its data
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
             self.cluster_manager.centroids = np.load(centroids_path)
-            self.cluster_manager.assignments = np.load(assignments_path)
+            # self.cluster_manager.assignments = np.load(assignments_path)
+            self.cluster_manager.assignments = np.memmap(assignments_path, dtype=np.int32, mode="r")
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
 
@@ -100,12 +101,14 @@ class VecDB:
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
+            start_offset = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
+            end_offset = (chunk_indices[-1] + 1) * DIMENSION * ELEMENT_SIZE
             candidate_vectors = np.memmap(
                 self.db_path,
                 dtype=np.float32,
                 mode="r",
-                shape=(len(chunk_indices), DIMENSION),
-                offset=chunk_indices[0] * DIMENSION * ELEMENT_SIZE
+                offset=start_offset,
+                shape=(len(chunk_indices), DIMENSION)
             )
 
             # Load a chunk of candidate vectors
@@ -123,6 +126,7 @@ class VecDB:
             dot_products = np.dot(candidate_vectors, query)
             del candidate_vectors
             scores = dot_products / (candidate_norms * query_norm + 1e-10)
+
             del dot_products
             del candidate_norms
             # Use a heap to maintain the top-k candidates
@@ -132,7 +136,7 @@ class VecDB:
                 else:
                     heapq.heappushpop(top_candidates, (score, idx))
             del chunk_indices
-                    
+            gc.collect()
         gc.collect()
 
             
