@@ -40,16 +40,14 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids file not found.")
 
-    def get_cluster_assignments(self, cluster_ids: List[int]) -> np.ndarray:
+    def get_cluster_assignments(self, cluster_id: int) -> np.ndarray:
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
         if os.path.exists(assignments_path):
-            full_assignments = np.load(assignments_path, mmap_mode='r')
-            mask = np.isin(full_assignments, cluster_ids)
-            indices = np.where(mask)[0]
+            assignments = np.load(assignments_path, mmap_mode='r')
+            indices = np.where(assignments == cluster_id)[0]
             return indices
         else:
             raise FileNotFoundError("Assignments file not found.")
-        
     def _build_index(self, full_rebuild=False):
         vectors = self.get_all_rows()
 
@@ -74,51 +72,34 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        centroid_distances = np.argsort(centroid_distances)
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 2]
         del centroids
         gc.collect()
 
-        # Step 2: Select top clusters
-        max_clusters_to_search = min(len(centroid_distances), top_k * 4)
-        top_cluster_ids = centroid_distances[:max_clusters_to_search]
-        del centroid_distances
-        gc.collect()
-
-        # Step 3: Fetch candidate indices
-        candidate_indices = self.get_cluster_assignments(top_cluster_ids)
+        # Step 2: Fetch candidate indices dynamically
+        candidate_indices = []
+        for cluster_id in top_cluster_ids:
+            candidate_indices.extend(self.get_cluster_assignments(cluster_id))
         candidate_indices = np.unique(candidate_indices)
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
 
-        # Step 4: Process candidates in chunks
+         # Step 3: Process candidates
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 200
+        for idx in candidate_indices:
+            candidate_vector = self.get_one_row(idx)
+            candidate_norm = np.linalg.norm(candidate_vector)
+            score = np.dot(candidate_vector, query) / (candidate_norm * query_norm + 1e-10)
+            if len(top_candidates) < top_k:
+                heapq.heappush(top_candidates, (score, idx))
+            else:
+                heapq.heappushpop(top_candidates, (score, idx))
 
-        for start in range(0, len(candidate_indices), chunk_size):
-            end = min(start + chunk_size, len(candidate_indices))
-            chunk_indices = candidate_indices[start:end]
-
-            candidate_vectors = [self.get_one_row(idx) for idx in chunk_indices]
-            candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
-            dot_products = np.dot(candidate_vectors, query)
-            del candidate_vectors
-
-            scores = dot_products / (candidate_norms * query_norm + 1e-10)
-            del dot_products, candidate_norms
-
-            for idx, score in zip(chunk_indices, scores):
-                if len(top_candidates) < top_k:
-                    heapq.heappush(top_candidates, (score, idx))
-                else:
-                    heapq.heappushpop(top_candidates, (score, idx))
-            del chunk_indices
-            gc.collect()
-        # Step 5: Return sorted results
+        # Step 4: Return sorted results
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         gc.collect()
         return [idx for _, idx in top_candidates]
-
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
