@@ -115,13 +115,11 @@ class VecDB:
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         del cluster_scores
-        gc.collect()
         num_records = self._get_num_records()
-        top_cluster_count = max(5, top_k * (15 if num_records <= 1_000_000 else 5))
+        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 3))
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
         del sorted_clusters
-        gc.collect()
         candidates = []
         for cluster_id in top_cluster_ids:
             cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
@@ -135,7 +133,6 @@ class VecDB:
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
             del cluster_data, cluster_vector_indices, pq_codes, codebook, pq_results  # Clean up
-            gc.collect()
             
         final_candidates = []
         batch_size = 100
@@ -146,7 +143,6 @@ class VecDB:
 
             final_candidates.extend(zip(batch_indices, batch_scores))
             del batch_vectors, batch_scores
-            gc.collect()
 
         final_candidates.sort(key=lambda x: -x[1])
         del candidates
