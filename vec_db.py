@@ -84,7 +84,7 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 6]
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 8]
         del centroids
         gc.collect()
 
@@ -98,7 +98,7 @@ class VecDB:
         # Step 3: Process candidates in batches
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        batch_size = 10000
+        batch_size = 1000000
 
         for start in range(0, len(candidate_indices), batch_size):
             end = min(start + batch_size, len(candidate_indices))
