@@ -40,7 +40,7 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids file not found.")
 
-    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 1000000) -> np.ndarray:
+    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 10000) -> np.ndarray:
         # Path to the cluster assignment file
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
 
@@ -124,7 +124,7 @@ class VecDB:
 
         # Rank candidates based on similarity scores
         top_candidates = []
-        batch_size = 50000
+        batch_size = 10000
 
         # Process candidate vectors in batches
         for start in range(0, len(candidate_indices), batch_size):
