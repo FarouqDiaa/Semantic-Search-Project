@@ -116,7 +116,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         del cluster_scores
         num_records = self._get_num_records()
-        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 3))
+        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 5))
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
         del sorted_clusters
