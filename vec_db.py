@@ -84,7 +84,7 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 8]
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 6]
         del centroids
         gc.collect()
 
