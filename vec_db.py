@@ -40,14 +40,25 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids file not found.")
 
-    def get_cluster_assignments(self, cluster_id: int) -> np.ndarray:
+    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 100000) -> np.ndarray:
+    
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
-        if os.path.exists(assignments_path):
-            assignments = np.load(assignments_path, mmap_mode='r')
-            indices = np.where(assignments == cluster_id)[0]
-            return indices
-        else:
+        if not os.path.exists(assignments_path):
             raise FileNotFoundError("Assignments file not found.")
+        
+        # Get the total number of assignments from the file size
+        total_assignments = os.path.getsize(assignments_path) // np.dtype(np.int32).itemsize
+        
+        indices = []
+        with open(assignments_path, "rb") as f:
+            for start in range(0, total_assignments, chunk_size):
+                end = min(start + chunk_size, total_assignments)
+                f.seek(start * np.dtype(np.int32).itemsize)
+                chunk = np.frombuffer(f.read((end - start) * np.dtype(np.int32).itemsize), dtype=np.int32)
+                indices.extend(np.where(chunk == cluster_id)[0] + start)  # Offset by start for global indices
+        
+        return np.array(indices)
+
     def _build_index(self, full_rebuild=False):
         vectors = self.get_all_rows()
 
@@ -72,7 +83,7 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 2]
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 4]
         del centroids
         gc.collect()
 
@@ -84,7 +95,7 @@ class VecDB:
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
 
-         # Step 3: Process candidates
+        # Step 3: Process candidates
         query_norm = np.linalg.norm(query)
         top_candidates = []
         for idx in candidate_indices:
@@ -100,6 +111,7 @@ class VecDB:
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         gc.collect()
         return [idx for _, idx in top_candidates]
+
 
     def get_all_rows(self) -> np.ndarray:
         num_records = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
