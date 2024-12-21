@@ -98,18 +98,18 @@ class VecDB:
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
-            candidate_vectors = []
-            for idx in chunk_indices:
-                candidate_vectors.append(self.get_one_row(idx))
+            # candidate_vectors = []
+            # for idx in chunk_indices:
+            #     candidate_vectors.append(self.get_one_row(idx))
 
             # Load a chunk of candidate vectors
-            # candidate_vectors = np.memmap(
-            #     self.db_path,
-            #     dtype=np.float32,
-            #     mode='r',
-            #     offset= start * DIMENSION * ELEMENT_SIZE,
-            #     shape=(len(chunk_indices), DIMENSION)
-            # )
+            candidate_vectors = np.memmap(
+                self.db_path,
+                dtype=np.float32,
+                mode='r',
+                offset=chunk_indices[0] * DIMENSION * ELEMENT_SIZE,
+                shape=(len(chunk_indices), DIMENSION)
+            )
 
             # Compute norms and cosine similarity in batch
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
