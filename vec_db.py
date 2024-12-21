@@ -116,7 +116,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         del cluster_scores
         num_records = self._get_num_records()
-        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 5))
+        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 6))
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
         del sorted_clusters
@@ -129,13 +129,13 @@ class VecDB:
             pq_codes = cluster_data["codes"]
             codebook = cluster_data["codebook"]
 
-            pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
+            pq_results = self._pq_search(pq_codes, query, top_k * 20, codebook)
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
             del cluster_data, cluster_vector_indices, pq_codes, codebook, pq_results  # Clean up
             
         final_candidates = []
-        batch_size = 100
+        batch_size = 500
         for i in range(0, len(candidates), batch_size):
             batch_indices = [idx for idx, _ in candidates[i:i + batch_size]]
             batch_vectors = self.get_all_rows()[batch_indices]
@@ -260,7 +260,10 @@ class ClusterManager:
         kmeans.train(vectors)
         self.centroids = kmeans.centroids
 
-        index = faiss.IndexFlatL2(self.dimension)
-        index.add(self.centroids)
-        _, self.assignments = index.search(vectors, 1)
-        self.assignments = self.assignments.flatten()
+        self.assignments = self._assign_to_clusters(vectors, self.centroids)
+    def _assign_to_clusters(vectors: np.ndarray, centroids: np.ndarray) -> np.ndarray:
+        normalized_vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
+        normalized_centroids = centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
+        similarity_matrix = np.dot(normalized_vectors, normalized_centroids.T)
+        assignments = np.argmax(similarity_matrix, axis=1)
+        return assignments
