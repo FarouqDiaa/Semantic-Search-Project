@@ -116,7 +116,7 @@ class VecDB:
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         del cluster_scores
         num_records = self._get_num_records()
-        top_cluster_count = max(5, top_k * (8 if num_records <= 1_000_000 else 6))
+        top_cluster_count = max(5, top_k * (10 if num_records <= 1_000_000 else 8))
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
         del sorted_clusters
@@ -135,7 +135,7 @@ class VecDB:
             del cluster_data, cluster_vector_indices, pq_codes, codebook, pq_results  # Clean up
             
         final_candidates = []
-        batch_size = 500
+        batch_size = 1000
         for i in range(0, len(candidates), batch_size):
             batch_indices = [idx for idx, _ in candidates[i:i + batch_size]]
             batch_vectors = self.get_all_rows()[batch_indices]
