@@ -73,6 +73,7 @@ class VecDB:
 
 
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
+    
         os.makedirs(self.index_path, exist_ok=True)
         centroids = self.load_centroids()
 
@@ -83,34 +84,45 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 6]
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 2]
         del centroids
         gc.collect()
 
         # Step 2: Fetch candidate indices dynamically
-        candidate_indices = []
+        candidate_indices = set()
         for cluster_id in top_cluster_ids:
-            candidate_indices.extend(self.get_cluster_assignments(cluster_id))
-        candidate_indices = np.unique(candidate_indices)
+            candidate_indices.update(self.get_cluster_assignments(cluster_id))
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
-        candidate_indices = candidate_indices[candidate_indices < db_size]
+        candidate_indices = np.array([idx for idx in candidate_indices if idx < db_size])
 
-        # Step 3: Process candidates
+        # Step 3: Process candidates in batches
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        for idx in candidate_indices:
-            candidate_vector = self.get_one_row(idx)
-            candidate_norm = np.linalg.norm(candidate_vector)
-            score = np.dot(candidate_vector, query) / (candidate_norm * query_norm + 1e-10)
-            if len(top_candidates) < top_k:
-                heapq.heappush(top_candidates, (score, idx))
-            else:
-                heapq.heappushpop(top_candidates, (score, idx))
+        batch_size = 1000  # Adjustable based on memory and performance trade-offs
+
+        for start in range(0, len(candidate_indices), batch_size):
+            end = min(start + batch_size, len(candidate_indices))
+            batch_indices = candidate_indices[start:end]
+            
+            # Fetch batch vectors
+            batch_vectors = np.array([self.get_one_row(idx) for idx in batch_indices])
+            
+            # Compute norms and cosine similarity in a vectorized manner
+            batch_norms = np.linalg.norm(batch_vectors, axis=1)
+            scores = np.dot(batch_vectors, query) / (batch_norms * query_norm + 1e-10)
+            
+            # Collect top candidates from this batch
+            for score, idx in zip(scores, batch_indices):
+                if len(top_candidates) < top_k:
+                    heapq.heappush(top_candidates, (score, idx))
+                else:
+                    heapq.heappushpop(top_candidates, (score, idx))
 
         # Step 4: Return sorted results
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         gc.collect()
         return [idx for _, idx in top_candidates]
+
 
 
     def get_all_rows(self) -> np.ndarray:
