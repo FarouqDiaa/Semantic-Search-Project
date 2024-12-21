@@ -101,15 +101,19 @@ class VecDB:
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
-            start_offset = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
-            end_offset = (chunk_indices[-1] + 1) * DIMENSION * ELEMENT_SIZE
-            candidate_vectors = np.memmap(
-                self.db_path,
-                dtype=np.float32,
-                mode="r",
-                offset=start_offset,
-                shape=(len(chunk_indices), DIMENSION)
-            )
+            
+            candidate_vectors = []
+            for idx in chunk_indices:
+                candidate_vectors.append(self.get_one_row(idx))
+            # start_offset = chunk_indices[0] * DIMENSION * ELEMENT_SIZE
+            # end_offset = (chunk_indices[-1] + 1) * DIMENSION * ELEMENT_SIZE
+            # candidate_vectors = np.memmap(
+            #     self.db_path,
+            #     dtype=np.float32,
+            #     mode="r",
+            #     offset=start_offset,
+            #     shape=(len(chunk_indices), DIMENSION)
+            # )
 
             # Load a chunk of candidate vectors
             # candidate_vectors = np.memmap(
