@@ -107,8 +107,8 @@ class VecDB:
                 self.db_path,
                 dtype=np.float32,
                 mode='r',
-                offset= candidate_indices[start] * DIMENSION * ELEMENT_SIZE,
-                shape=(len(candidate_indices[start:end]), DIMENSION)
+                offset= start * DIMENSION * ELEMENT_SIZE,
+                shape=(len(chunk_indices), DIMENSION)
             )[chunk_indices]
 
             # Compute norms and cosine similarity in batch
