@@ -40,7 +40,7 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids file not found.")
 
-    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 100000) -> np.ndarray:
+    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 300000) -> np.ndarray:
     
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
         if not os.path.exists(assignments_path):
@@ -83,7 +83,7 @@ class VecDB:
 
         # Step 1: Calculate distances to centroids
         centroid_distances = np.linalg.norm(centroids - query, axis=1)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 4]
+        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 6]
         del centroids
         gc.collect()
 
