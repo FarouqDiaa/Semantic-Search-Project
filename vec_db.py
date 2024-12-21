@@ -106,7 +106,7 @@ class VecDB:
         centroid_distances = np.sum((centroids - query) ** 2, axis=1)
 
         # Identify the closest cluster centroids (expand to top_k * 2 for better recall)
-        top_cluster_ids = np.argsort(centroid_distances)[:top_k * 3]
+        top_cluster_ids = np.argsort(centroid_distances)[:int(top_k * 2.5)]
 
         # Clean up unused variables
         del centroids, centroid_distances
