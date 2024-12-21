@@ -46,8 +46,9 @@ class VecDB:
             num_clusters = len(centroids)
             self.cluster_manager = ClusterManager(num_clusters=num_clusters, dimension=DIMENSION)
             self.cluster_manager.centroids = centroids.astype(np.float32) / 255
+            del centroids
         else:
-            raise FileNotFoundError("Centroids or assignments files not found in {centroids_path}")
+            raise FileNotFoundError("Centroids file not found in {centroids_path}")
 
         # Load cluster data for each cluster
         self.pq_codebooks = {}
@@ -60,6 +61,7 @@ class VecDB:
                     "codes": cluster_data["codes"],
                     "codebook": cluster_data["codebook"]
                 }
+                del cluster_data
             else:
                 print(f"{cluster_file}")
                 print(f"Warning: Cluster file for cluster {cluster_id} not found.")
@@ -112,6 +114,7 @@ class VecDB:
             self.load_indices()
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
+        del cluster_scores
         num_records = self._get_num_records()
         if num_records <= 1_000_000: 
             top_cluster_count = max(5, top_k * 15)  # Higher accuracy by searching more clusters
@@ -119,6 +122,7 @@ class VecDB:
             top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
+        del sorted_clusters
 
         candidates = []
         for cluster_id in top_cluster_ids:
@@ -128,16 +132,18 @@ class VecDB:
             cluster_vector_indices = cluster_data["ids"]
             pq_codes = cluster_data["codes"]
             codebook = cluster_data["codebook"]
-
+            del cluster_data
             pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
-
+        del pq_results
         final_candidates = []
         for idx, _ in candidates:
             original_vector = self.get_one_row(idx)
             score = self._cal_score(query, original_vector)
+            del original_vector
             final_candidates.append((idx, score))
+            del score
 
         final_candidates.sort(key=lambda x: -x[1])
         return [int(idx) for idx, _ in final_candidates[:top_k]]
@@ -164,9 +170,10 @@ class VecDB:
         query = query.flatten()
         # Calculate scores for each vector against the query using `_cal_score`
         scores = [self._cal_score(reconstructed_vec, query) for reconstructed_vec in reconstructed_vectors]
-
+        del reconstructed_vectors
         # Get the top-k indices with the highest similarity scores
         top_indices = np.argsort(scores)[-top_k:][::-1]
+        
 
         # Return the top-k results as tuples of (index, similarity score)
         return [(idx, scores[idx]) for idx in top_indices]
@@ -179,6 +186,8 @@ class VecDB:
         dot_products = np.dot(codebook, vector)  # Compute dot products for all centroids
         norms = np.linalg.norm(codebook, axis=1) * np.linalg.norm(vector)
         similarities = dot_products / norms
+        del dot_products
+        del norms
         return int(np.argmax(similarities))
 
 
