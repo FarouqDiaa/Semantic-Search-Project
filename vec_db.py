@@ -166,23 +166,22 @@ class VecDB:
         return [s[1] for s in scores]
 
     def _pq_search(self, codes: np.ndarray, query: np.ndarray, top_k: int, codebook: np.ndarray) -> List[tuple]:
+        # Reconstruct vectors using the codebook
+        try:
+            reconstructed_vectors = np.array([codebook[code] for code in codes])
+        except IndexError as e:
+            print(f"Error in reconstructing vectors: {e}")
+            raise
         query = query.flatten()
-        query_norm = np.linalg.norm(query)
-        scores = []
-        for code in codes:
-            reconstructed_vector = codebook[code]
-            score = np.dot(reconstructed_vector, query) / (np.linalg.norm(reconstructed_vector) * query_norm)
-            scores.append(score)
-
-        del query_norm, codebook
-        gc.collect()
-
+        # Calculate scores for each vector against the query using `_cal_score`
+        scores = [self._cal_score(reconstructed_vec, query) for reconstructed_vec in reconstructed_vectors]
+        del reconstructed_vectors
+        # Get the top-k indices with the highest similarity scores
         top_indices = np.argsort(scores)[-top_k:][::-1]
-        results = [(idx, scores[idx]) for idx in top_indices]
-        del scores, top_indices
-        gc.collect()
+        
 
-        return results
+        # Return the top-k results as tuples of (index, similarity score)
+        return [(idx, scores[idx]) for idx in top_indices]
 
 
 
