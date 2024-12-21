@@ -40,7 +40,7 @@ class VecDB:
         else:
             raise FileNotFoundError("Centroids file not found.")
 
-    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 300000) -> np.ndarray:
+    def get_cluster_assignments(self, cluster_id: int, chunk_size: int = 1000000) -> np.ndarray:
     
         assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
         if not os.path.exists(assignments_path):
