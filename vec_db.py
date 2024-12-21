@@ -45,6 +45,7 @@ class VecDB:
             raise FileNotFoundError("Centroids or assignments files not found. Please build the index first.")
 
 
+
     def _build_index(self, full_rebuild=False):
         vectors = self.get_all_rows()
 
@@ -62,6 +63,9 @@ class VecDB:
         os.makedirs(self.index_path, exist_ok=True)
         if self.cluster_manager is None:
             self.load_indices()
+
+        if self.cluster_manager.centroids is None:
+            raise RuntimeError("Centroids are not loaded. Please ensure the index is built and loaded properly.")
 
         query = query.squeeze()
         if query.ndim != 1 or query.shape[0] != DIMENSION:
