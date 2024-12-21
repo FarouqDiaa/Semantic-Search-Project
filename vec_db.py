@@ -109,7 +109,7 @@ class VecDB:
                 mode='r',
                 offset= start * DIMENSION * ELEMENT_SIZE,
                 shape=(len(chunk_indices), DIMENSION)
-            )[chunk_indices]
+            )
 
             # Compute norms and cosine similarity in batch
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
