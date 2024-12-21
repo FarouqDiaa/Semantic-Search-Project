@@ -35,13 +35,14 @@ class VecDB:
 
     def load_indices(self) -> None:
         centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
+        assignments_path = os.path.join(self.index_path, "ivf_assignments.npy")
 
-        if os.path.exists(centroids_path):
+        if os.path.exists(centroids_path) and os.path.exists(assignments_path):
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
             self.cluster_manager.centroids = np.load(centroids_path)
+            self.cluster_manager.assignments_path = self.index_path
         else:
-            raise FileNotFoundError("Centroids file not found.")
-
+            raise FileNotFoundError("Centroids or assignments files not found. Please build the index first.")
 
 
     def _build_index(self, full_rebuild=False):
@@ -146,7 +147,7 @@ class ClusterManager:
         self.num_clusters = num_clusters
         self.dimension = dimension
         self.centroids = None
-        self.assignments = None
+        self.assignments_path = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
         from faiss import Kmeans  # Import Faiss for k-means
