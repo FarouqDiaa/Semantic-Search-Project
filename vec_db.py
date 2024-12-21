@@ -92,24 +92,30 @@ class VecDB:
         # Step 4: Process candidates in chunks to balance memory and time
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        chunk_size = 200  # Adjust chunk size based on available memory
+
+        available_memory = 50 * 1024 * 1024
+        chunk_size = min(200, available_memory // (DIMENSION * ELEMENT_SIZE))
 
         for start in range(0, len(candidate_indices), chunk_size):
             end = min(start + chunk_size, len(candidate_indices))
             chunk_indices = candidate_indices[start:end]
 
-            # candidate_vectors = []
-            # for idx in chunk_indices:
-            #     candidate_vectors.append(self.get_one_row(idx))
-
-            # Load a chunk of candidate vectors
             candidate_vectors = np.memmap(
                 self.db_path,
                 dtype=np.float32,
-                mode='r',
-                offset=chunk_indices[0] * DIMENSION * ELEMENT_SIZE,
-                shape=(len(chunk_indices), DIMENSION)
+                mode="r",
+                shape=(len(chunk_indices), DIMENSION),
+                offset=chunk_indices[0] * DIMENSION * ELEMENT_SIZE
             )
+
+            # Load a chunk of candidate vectors
+            # candidate_vectors = np.memmap(
+            #     self.db_path,
+            #     dtype=np.float32,
+            #     mode='r',
+            #     offset= start * DIMENSION * ELEMENT_SIZE,
+            #     shape=(len(chunk_indices), DIMENSION)
+            # )
 
             # Compute norms and cosine similarity in batch
             candidate_norms = np.linalg.norm(candidate_vectors, axis=1)
@@ -173,12 +179,14 @@ class ClusterManager:
         self.centroids = kmeans.centroids
         del kmeans
         # batch size dynamically for assignment computation
-        if num_vectors <= 10**6:
-            assignment_batch_size = 10000
-        elif num_vectors <= 15 * 10**6:
-            assignment_batch_size = 5000
-        else:
-            assignment_batch_size = 1000
+        # if num_vectors <= 10**6:
+        #     assignment_batch_size = 10000
+        # elif num_vectors <= 15 * 10**6:
+        #     assignment_batch_size = 5000
+        # else:
+        #     assignment_batch_size = 1000
+
+        assignment_batch_size = max(1000, num_vectors // 10000)
 
         # Efficient batch assignment
         assignments = np.empty(num_vectors, dtype=np.int32)
