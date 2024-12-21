@@ -75,7 +75,7 @@ if __name__ == "__main__":
     DIMENSION = 70
 
     # Initialize your VecDB instance
-    db = VecDB(database_file_path="saved_db_1m.dat", index_file_path="saved_db_1m", db_size=10**6)
+    db = VecDB(database_file_path="saved_db_1m.dat", index_file_path="saved_db_1m", db_size=1000)
 
     # Generate a random query vector
     query_vector = np.random.rand(1, DIMENSION).astype(np.float32)

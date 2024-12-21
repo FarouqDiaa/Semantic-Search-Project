@@ -135,14 +135,11 @@ class VecDB:
             del cluster_data, cluster_vector_indices, pq_codes, codebook, pq_results  # Clean up
             
         final_candidates = []
-        batch_size = 1000
-        for i in range(0, len(candidates), batch_size):
-            batch_indices = [idx for idx, _ in candidates[i:i + batch_size]]
-            batch_vectors = self.get_all_rows()[batch_indices]
-            batch_scores = [self._cal_score(query, vec) for vec in batch_vectors]
 
-            final_candidates.extend(zip(batch_indices, batch_scores))
-            del batch_vectors, batch_scores
+        for idx, _ in candidates:
+            vector = self.get_one_row(idx)  # Fetch one row at a time
+            score = self._cal_score(query, vector)
+            final_candidates.append((idx, score))
 
         final_candidates.sort(key=lambda x: -x[1])
         del candidates
@@ -261,7 +258,7 @@ class ClusterManager:
         self.centroids = kmeans.centroids
 
         self.assignments = self._assign_to_clusters(vectors, self.centroids)
-    def _assign_to_clusters(vectors: np.ndarray, centroids: np.ndarray) -> np.ndarray:
+    def _assign_to_clusters(self, vectors: np.ndarray, centroids: np.ndarray) -> np.ndarray:
         normalized_vectors = vectors / np.linalg.norm(vectors, axis=1, keepdims=True)
         normalized_centroids = centroids / np.linalg.norm(centroids, axis=1, keepdims=True)
         similarity_matrix = np.dot(normalized_vectors, normalized_centroids.T)
