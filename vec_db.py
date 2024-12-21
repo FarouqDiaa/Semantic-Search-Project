@@ -106,7 +106,7 @@ class VecDB:
         centroid_distances = np.sum((centroids - query) ** 2, axis=1)
 
         # Identify the closest cluster centroids (expand to top_k * 2 for better recall)
-        top_cluster_ids = np.argsort(centroid_distances)[:int(top_k * 2.5)]
+        top_cluster_ids = np.argsort(centroid_distances)[:int(top_k * 2.7)]
 
         # Clean up unused variables
         del centroids, centroid_distances
@@ -124,7 +124,7 @@ class VecDB:
 
         # Rank candidates based on similarity scores
         top_candidates = []
-        batch_size = 80000
+        batch_size = 10000
 
         # Process candidate vectors in batches
         for start in range(0, len(candidate_indices), batch_size):
