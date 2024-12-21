@@ -4,7 +4,7 @@ from sklearn.cluster import MiniBatchKMeans
 from typing import Dict, List, Annotated
 from sklearn.cluster import KMeans
 import faiss
-
+import gc
 
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
@@ -42,11 +42,11 @@ class VecDB:
     def load_indices(self) -> None:
         centroids_path = os.path.join(self.index_path, "ivf_centroids.npy")
         if os.path.exists(centroids_path):
-            centroids = np.load(centroids_path)
-            num_clusters = len(centroids)
-            self.cluster_manager = ClusterManager(num_clusters=num_clusters, dimension=DIMENSION)
+            centroids = np.load(centroids_path, mmap_mode="r")
+            self.cluster_manager = ClusterManager(len(centroids), dimension=DIMENSION)
             self.cluster_manager.centroids = centroids.astype(np.float32) / 255
             del centroids
+            gc.collect()
         else:
             raise FileNotFoundError("Centroids file not found in {centroids_path}")
 
@@ -115,15 +115,13 @@ class VecDB:
         cluster_scores = [(i, self._cal_score(query, centroid)) for i, centroid in enumerate(self.cluster_manager.centroids)]
         sorted_clusters = sorted(cluster_scores, key=lambda x: -x[1])
         del cluster_scores
+        gc.collect()
         num_records = self._get_num_records()
-        if num_records <= 1_000_000: 
-            top_cluster_count = max(5, top_k * 15)  # Higher accuracy by searching more clusters
-        else:
-            top_cluster_count = max(3, top_k * 5)  # Improve time by limiting clusters
+        top_cluster_count = max(5, top_k * (15 if num_records <= 1_000_000 else 5))
 
         top_cluster_ids = [cluster_id for cluster_id, _ in sorted_clusters[:top_cluster_count]]
         del sorted_clusters
-
+        gc.collect()
         candidates = []
         for cluster_id in top_cluster_ids:
             cluster_data = np.load(os.path.join(self.index_path, f"cluster_{cluster_id}.npz"))
@@ -132,20 +130,27 @@ class VecDB:
             cluster_vector_indices = cluster_data["ids"]
             pq_codes = cluster_data["codes"]
             codebook = cluster_data["codebook"]
-            del cluster_data
+
             pq_results = self._pq_search(pq_codes, query, top_k * 15, codebook)
             for idx, pq_score in pq_results:
                 candidates.append((cluster_vector_indices[idx], pq_score))  # Map back to original indices
-        del pq_results
+            del cluster_data, cluster_vector_indices, pq_codes, codebook, pq_results  # Clean up
+            gc.collect()
+            
         final_candidates = []
-        for idx, _ in candidates:
-            original_vector = self.get_one_row(idx)
-            score = self._cal_score(query, original_vector)
-            del original_vector
-            final_candidates.append((idx, score))
-            del score
+        batch_size = 100
+        for i in range(0, len(candidates), batch_size):
+            batch_indices = [idx for idx, _ in candidates[i:i + batch_size]]
+            batch_vectors = self.get_all_rows()[batch_indices]
+            batch_scores = [self._cal_score(query, vec) for vec in batch_vectors]
+
+            final_candidates.extend(zip(batch_indices, batch_scores))
+            del batch_vectors, batch_scores
+            gc.collect()
 
         final_candidates.sort(key=lambda x: -x[1])
+        del candidates
+        gc.collect()
         return [int(idx) for idx, _ in final_candidates[:top_k]]
 
     def retrieve_true(self, query: Annotated[np.ndarray, (1, DIMENSION)], top_k = 5):
@@ -161,22 +166,23 @@ class VecDB:
         return [s[1] for s in scores]
 
     def _pq_search(self, codes: np.ndarray, query: np.ndarray, top_k: int, codebook: np.ndarray) -> List[tuple]:
-        # Reconstruct vectors using the codebook
-        try:
-            reconstructed_vectors = np.array([codebook[code] for code in codes])
-        except IndexError as e:
-            print(f"Error in reconstructing vectors: {e}")
-            raise
         query = query.flatten()
-        # Calculate scores for each vector against the query using `_cal_score`
-        scores = [self._cal_score(reconstructed_vec, query) for reconstructed_vec in reconstructed_vectors]
-        del reconstructed_vectors
-        # Get the top-k indices with the highest similarity scores
-        top_indices = np.argsort(scores)[-top_k:][::-1]
-        
+        query_norm = np.linalg.norm(query)
+        scores = []
+        for code in codes:
+            reconstructed_vector = codebook[code]
+            score = np.dot(reconstructed_vector, query) / (np.linalg.norm(reconstructed_vector) * query_norm)
+            scores.append(score)
 
-        # Return the top-k results as tuples of (index, similarity score)
-        return [(idx, scores[idx]) for idx in top_indices]
+        del query_norm, codebook
+        gc.collect()
+
+        top_indices = np.argsort(scores)[-top_k:][::-1]
+        results = [(idx, scores[idx]) for idx in top_indices]
+        del scores, top_indices
+        gc.collect()
+
+        return results
 
 
 
