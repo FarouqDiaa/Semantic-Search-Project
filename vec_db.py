@@ -42,7 +42,7 @@ class VecDB:
             self.cluster_manager = ClusterManager(num_clusters=None, dimension=DIMENSION)
             self.cluster_manager.centroids = np.load(centroids_path)
             # self.cluster_manager.assignments = np.load(assignments_path)
-            self.cluster_manager.assignments = np.memmap(assignments_path, dtype=np.int32, mode="r")
+            # self.cluster_manager.assignments = np.memmap(assignments_path, dtype=np.int32, mode="r")
         else:
             raise FileNotFoundError("Centroids or assignments files not found.")
 
@@ -79,12 +79,22 @@ class VecDB:
         top_cluster_ids = centroid_distances[:max_clusters_to_search]
 
         # Step 3: Gather candidate indices efficiently
-        candidate_indices = np.hstack([
-            np.where(self.cluster_manager.assignments == cluster_id)[0]
-            for cluster_id in top_cluster_ids
-        ])
+        def get_candidate_indices():
+            assignments = np.memmap(
+                os.path.join(self.index_path, "ivf_assignments.npy"),
+                dtype=np.int32,
+                mode="r",
+            )
+            for cluster_id in top_cluster_ids:
+                yield np.where(assignments == cluster_id)[0]    
+        
+        # Combine all candidate indices from the generator
+        candidate_indices = np.hstack(list(get_candidate_indices()))
+        
         del self.cluster_manager.assignments
         del top_cluster_ids
+
+
         candidate_indices = np.unique(candidate_indices)
         # Ensure candidate indices are within bounds
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
