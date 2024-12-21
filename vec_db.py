@@ -124,7 +124,7 @@ class VecDB:
 
         # Rank candidates based on similarity scores
         top_candidates = []
-        batch_size = 10000
+        batch_size = 50000
 
         # Process candidate vectors in batches
         for start in range(0, len(candidate_indices), batch_size):
