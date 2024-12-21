@@ -82,6 +82,10 @@ class VecDB:
             if os.path.exists(cluster_assignments_path):
                 cluster_indices = np.load(cluster_assignments_path)
                 candidate_indices.append(cluster_indices)
+
+        if len(candidate_indices) == 0:
+            return []  # Return an empty list if no candidates are found
+
         candidate_indices = np.hstack(candidate_indices)
         candidate_indices = np.unique(candidate_indices)
 
@@ -117,6 +121,7 @@ class VecDB:
         # Step 5: Sort final top-k candidates by score
         top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         return [idx for _, idx in top_candidates]
+
 
 
 
