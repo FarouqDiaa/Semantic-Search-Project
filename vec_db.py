@@ -98,7 +98,7 @@ class VecDB:
         # Step 3: Process candidates in batches
         query_norm = np.linalg.norm(query)
         top_candidates = []
-        batch_size = 10000
+        batch_size = 1000000
 
         for start in range(0, len(candidate_indices), batch_size):
             end = min(start + batch_size, len(candidate_indices))
