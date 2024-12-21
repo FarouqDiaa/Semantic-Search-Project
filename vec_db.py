@@ -80,7 +80,8 @@ class VecDB:
         if query.ndim != 1 or query.shape[0] != DIMENSION:
             raise ValueError(f"Query shape is invalid: {query.shape}. Expected shape is ({DIMENSION},)")
 
-        centroid_distances = np.linalg.norm(centroids - query, axis=1)
+        query_norm = np.linalg.norm(query)
+        centroid_distances = np.sum((centroids - query) ** 2, axis=1)
         top_cluster_ids = np.argsort(centroid_distances)[:top_k * 2]
         del centroids
         gc.collect()
@@ -92,19 +93,26 @@ class VecDB:
         db_size = os.path.getsize(self.db_path) // (DIMENSION * ELEMENT_SIZE)
         candidate_indices = candidate_indices[candidate_indices < db_size]
 
-        query_norm = np.linalg.norm(query)
         top_candidates = []
-        batch_size = 500000
+        batch_size = 100000
 
-        def process_batch(batch):
-            batch_vectors = np.array([self.get_one_row(idx) for idx in batch])
-            scores = np.dot(batch_vectors, query) / (np.linalg.norm(batch_vectors, axis=1) * query_norm + 1e-10)
-            return [(score, idx) for score, idx in zip(scores, batch)]
+        for start in range(0, len(candidate_indices), batch_size):
+            end = min(start + batch_size, len(candidate_indices))
+            batch_indices = candidate_indices[start:end]
 
-        with ThreadPoolExecutor() as executor:
-            results = list(executor.map(process_batch, np.array_split(candidate_indices, max(1, len(candidate_indices) // batch_size))))
-        
-        top_candidates = heapq.nlargest(top_k, (item for sublist in results for item in sublist), key=lambda x: x[0])
+            batch_vectors = np.array([self.get_one_row(idx) for idx in batch_indices])
+            scores = np.dot(batch_vectors, query) / (
+                np.linalg.norm(batch_vectors, axis=1) * query_norm + 1e-10
+            )
+
+            for score, idx in zip(scores, batch_indices):
+                if len(top_candidates) < top_k:
+                    heapq.heappush(top_candidates, (score, idx))
+                else:
+                    heapq.heappushpop(top_candidates, (score, idx))
+
+        # Step 4: Return sorted results
+        top_candidates = sorted(top_candidates, key=lambda x: -x[0])
         return [idx for _, idx in top_candidates]
 
 
