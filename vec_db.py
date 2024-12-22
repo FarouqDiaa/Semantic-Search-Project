@@ -140,7 +140,9 @@ class VecDB:
             vector = self.get_one_row(idx)  # Fetch one row at a time
             score = self._cal_score(query, vector)
             final_candidates.append((idx, score))
-
+            del vector
+            del score
+        
         final_candidates.sort(key=lambda x: -x[1])
         del candidates
         gc.collect()
@@ -244,7 +246,6 @@ class ClusterManager:
         self.assignments = None
 
     def cluster_vectors(self, vectors: np.ndarray) -> None:
-        # Ensure data is in float32 format (required for FAISS)
         vectors = vectors.astype(np.float32)
 
         kmeans = faiss.Kmeans(
