@@ -159,7 +159,6 @@ class VecDB:
         # here we assume that if two rows have the same score, return the lowest ID
         scores = sorted(scores, reverse=True)[:top_k]
         return [s[1] for s in scores]
-    @profile
     def _pq_search(self, codes: np.ndarray, query: np.ndarray, top_k: int, codebook: np.ndarray) -> List[tuple]:
         # Reconstruct vectors using the codebook
         try:
