@@ -6,6 +6,7 @@ from sklearn.cluster import KMeans
 import faiss
 import gc
 
+
 DB_SEED_NUMBER = 42
 ELEMENT_SIZE = np.dtype(np.float32).itemsize
 DIMENSION = 70
@@ -106,7 +107,6 @@ class VecDB:
                 cluster_file = os.path.join(self.index_path, f"cluster_{cluster_id}.npz")
                 np.savez_compressed(cluster_file, **cluster_data)
 
-
     def retrieve(self, query: np.ndarray, top_k: int) -> List[int]:
         if self.cluster_manager is None:
             self.cluster_manager = None
@@ -159,7 +159,7 @@ class VecDB:
         # here we assume that if two rows have the same score, return the lowest ID
         scores = sorted(scores, reverse=True)[:top_k]
         return [s[1] for s in scores]
-
+    @profile
     def _pq_search(self, codes: np.ndarray, query: np.ndarray, top_k: int, codebook: np.ndarray) -> List[tuple]:
         # Reconstruct vectors using the codebook
         try:
