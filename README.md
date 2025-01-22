@@ -1,40 +1,110 @@
-# Semantic Search Engine with Vectorized Databases
-This repository contains the code and documentation for a simple semantic search engine with vectorized databases and the evaluation of its performance. The project focuses on building an efficient indexing system to retrieve information based on vector space embeddings.
+# Semantic Search Engine with Vectorized Database and IVF+PQ Indexing  
 
-## Project Overview
+## Overview  
 
-The key components of the project include:
-- `VecDB`: A class representing the vectorized database, responsible for storing and retrieving vectors.
-- `generate_database()`: A method to generate a random database.
-- `get_one_row()`: A method to get one row from the database given its index.
-- `insert_records()`: A method to insert multiple records into the database. It then rebuilds the index.
-- `retrieve()`: A method to retrieve the top-k most similar based on a given query vector.
-- `_cal_score()`: A helper method to calculate the cosine similarity between two vectors.
-- `_build_index()`: A placeholder method for implementing an indexing mechanism.
+This script implements a semantic search engine built upon a provided framework for vector storage and access. While the **vector generation** and **memory-mapped storage** were pre-provided, this implementation extends it by incorporating **Inverted File Indexing (IVF)** and **Product Quantization (PQ)** for efficient indexing and querying of high-dimensional vectors.  
 
-## Getting Started
+## Key Contributions  
 
-To get started with the project, follow these steps:
-1. Clone the repository to your local machine.
-2. Run the provided code (which is almost the worst implementation of DB) and then edit/update the VecDB class as per the project requirements.
-3. Customize the code and add any additional features as needed. However, avoid modifying the DB_SEED_NUMBER, or the VecDB.\_\_init__ & VecDB.retrieve method signature.
-4. Run the evaluation to assess the accuracy of your implementation. The final evaluation will use the 'eval' function, but I wil update the 'run_queries' function.
+### 1. **IVF+PQ Indexing**  
+This implementation uses a combination of:  
+- **Inverted File Indexing (IVF)**: Divides the vector space into clusters for efficient candidate filtering.  
+- **Product Quantization (PQ)**: Compresses vectors into compact codes for fast approximate search within clusters.  
 
-## Usage
+#### Core Indexing Methods:  
+- **`_build_index(full_rebuild=False)`**  
+  Constructs the IVF+PQ index:
+  - Clusters vectors into centroids using K-Means.
+  - Trains a PQ codebook for each cluster to quantize the vectors.
+  - Saves centroids and compressed cluster data for retrieval.  
 
-The project provides a `VecDB` class that you can use to interact with the vectorized database. Here's an example of how to use it:
+- **`_train_pq_codebook(cluster_vectors)`**  
+  Trains a PQ codebook using K-Means clustering on vectors within a cluster.  
+
+- **`_quantize(codebook, vector)`**  
+  Encodes a vector into a PQ code by matching it to the closest centroid in the codebook.  
+
+### 2. **Efficient Retrieval**  
+The retrieval process combines fast filtering using IVF with approximate matching via PQ.  
+
+#### Core Retrieval Methods:  
+- **`retrieve(query, top_k)`**  
+  - Uses IVF to identify the most relevant clusters based on query similarity to centroids.  
+  - Applies PQ decoding and scoring within these clusters to refine and rank the results.  
+
+- **`_pq_search(codes, query, top_k, codebook)`**  
+  - Reconstructs vectors from PQ codes and ranks them based on similarity to the query.  
+
+### 3. **Dynamic Updates**  
+The implementation allows inserting new vectors and updating the index dynamically:  
+- **`insert_records(rows)`**  
+  - Appends new vectors to the database and updates the IVF+PQ index accordingly.  
+
+
+## Provided Framework  
+
+The following features were pre-provided to ensure a consistent starting point:  
+1. **Vector Generation**:  
+   - **`generate_database(size)`** creates a synthetic dataset of random vectors with fixed dimensions (`70`).  
+   - **`_write_vectors_to_file(vectors)`** stores these vectors in a memory-mapped binary file.  
+
+2. **Memory-Mapped Storage**:  
+   - Efficient storage and retrieval of vectors using NumPy memory mapping.  
+   - **`get_all_rows()`** loads all vectors into memory.  
+   - **`get_one_row(row_num)`** retrieves a single vector based on its index.  
+
+---
+
+## Workflow  
+
+1. **Initialization**  
+   - Create an instance of `VecDB` with the provided database and index paths.  
+   - Load or generate a database.  
+
+2. **Indexing**  
+   - Build an IVF+PQ index using the `_build_index` method.  
+   - Save centroids and compressed cluster data for fast retrieval.  
+
+3. **Querying**  
+   - Use the `retrieve` method to find the top-k most similar vectors to a given query.  
+
+4. **Dynamic Updates**  
+   - Add new vectors using `insert_records` and rebuild the index dynamically.  
+
+---
+
+## Example Usage  
 
 ```python
 import numpy as np
 from vec_db import VecDB
 
-# Create an instance of VecDB and random DB of size 10K
-db = VecDB(db_size = 10**4)
+# Initialize VecDB
+db = VecDB(database_file_path="my_database.dat", index_file_path="my_index", new_db=True, db_size=10000)
 
-# Retrieve similar images for a given query
-query_vector = np.random.rand(1,70) # Query vector of dimension 70
-similar_images = db.retrieve(query_vector, top_k=5)
-print(similar_images)
+# Build the index
+db._build_index(full_rebuild=True)
+
+# Query the database
+query_vector = np.random.rand(1, 70).astype(np.float32)  # Random query vector
+top_results = db.retrieve(query_vector, top_k=5)
+print("Top 5 Results:", top_results)
+
+# Insert new vectors
+new_vectors = np.random.rand(100, 70).astype(np.float32)  # 100 new vectors
+db.insert_records(new_vectors)
 ```
 
-Feel free to customize the code to suit your specific use case.
+---
+
+## Highlights 
+
+1. **Indexing**  
+   - Efficient clustering with FAISS for IVF.  
+   - PQ codebook training and quantization for memory-efficient approximate search.  
+
+2. **Retrieval**  
+   - Two-stage filtering and ranking: coarse-grained cluster selection followed by fine-grained PQ decoding.  
+
+3. **Scalability**  
+   - Designed to handle large datasets efficiently by leveraging IVF+PQ.  
