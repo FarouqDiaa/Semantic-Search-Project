@@ -108,3 +108,7 @@ db.insert_records(new_vectors)
 
 3. **Scalability**  
    - Designed to handle large datasets efficiently by leveraging IVF+PQ.  
+
+
+## Contributors  
+Developed as part of Cairo University’s **Advanced Database Systems** course.  
